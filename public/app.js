@@ -49,6 +49,16 @@ const widgetColors = [
   'rgba(127,29,29,0.78)',
   'rgba(51,65,85,0.78)'
 ];
+const musicPlayerColors = [
+  '#1b1b1d',
+  '#2a2a2a',
+  '#d7cbd3',
+  '#f1bfd4',
+  '#5a0719',
+  '#7b1238',
+  '#421062',
+  '#1f1230'
+];
 
 const state = {
   user: null,
@@ -62,6 +72,7 @@ const state = {
   },
   draft: null,
   moving: null,
+  resizing: null,
   pendingMusic: null,
   pendingPresentation: 'cover',
   saveTimers: new Map()
@@ -128,27 +139,27 @@ function createHearts() {
   const field = $('#heartField');
   field.innerHTML = '';
   const gothicColors = [
-    'rgba(2, 1, 4, 0.94)',
-    'rgba(16, 13, 21, 0.9)',
-    'rgba(50, 45, 58, 0.72)',
-    'rgba(115, 105, 127, 0.5)',
-    'rgba(33, 9, 56, 0.72)',
-    'rgba(91, 19, 143, 0.52)',
-    'rgba(72, 3, 24, 0.7)',
-    'rgba(150, 13, 47, 0.48)',
-    'rgba(235, 225, 238, 0.14)'
+    'rgba(0, 0, 0, 0.98)',
+    'rgba(5, 4, 7, 0.96)',
+    'rgba(15, 13, 18, 0.9)',
+    'rgba(42, 38, 48, 0.62)',
+    'rgba(20, 6, 34, 0.66)',
+    'rgba(56, 12, 88, 0.45)',
+    'rgba(50, 2, 17, 0.7)',
+    'rgba(112, 8, 34, 0.4)',
+    'rgba(205, 196, 210, 0.1)'
   ];
 
   for (let index = 0; index < 30; index += 1) {
     const heart = document.createElement('span');
     heart.className = 'heart';
     heart.style.zIndex = String(30 - index);
-    heart.style.setProperty('--duration', `${10 + (index % 6) * 0.9}s`);
-    heart.style.setProperty('--delay', `${index * -0.46}s`);
+    heart.style.setProperty('--duration', `${22 + (index % 6) * 1.6}s`);
+    heart.style.setProperty('--delay', `${index * -0.92}s`);
     heart.style.setProperty('--start-scale', `${0.06 + (index % 4) * 0.015}`);
     heart.style.setProperty('--end-scale', `${4.6 + (index % 8) * 0.42}`);
     heart.style.setProperty('--blur', `${index % 9 === 8 ? 1.4 : 0}px`);
-    heart.style.setProperty('--heart-opacity', `${0.42 + (index % 5) * 0.055}`);
+    heart.style.setProperty('--heart-opacity', `${0.32 + (index % 5) * 0.045}`);
     heart.style.setProperty('--heart-size', `${48 + (index % 10) * 18}px`);
     heart.style.setProperty('--heart-color', gothicColors[index % gothicColors.length]);
     field.appendChild(heart);
@@ -201,6 +212,13 @@ function setControlsForRole() {
 
 function widgetData(widget) {
   return widget.data && typeof widget.data === 'object' ? widget.data : {};
+}
+
+function setMusicPresentation(presentation) {
+  state.pendingPresentation = presentation;
+  $$('[data-presentation]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.presentation === presentation);
+  });
 }
 
 function boardPoint(event) {
@@ -288,12 +306,9 @@ function scheduleWidgetSave(widget, patch = {}, delay = 450) {
 function widgetShell(widget) {
   const data = widgetData(widget);
   const element = document.createElement('article');
-  element.className = `art-widget ${widget.type}-shell`;
-  if ((widget.type === 'canvas' || widget.type === 'wordbox') && (widget.width < 164 || widget.height < 96)) {
-    element.classList.add('external-controls');
-    if (widget.x + widget.width > board.clientWidth - 176) {
-      element.classList.add('controls-left');
-    }
+  element.className = `art-widget ${widget.type}-shell external-controls`;
+  if (widget.x + widget.width > board.clientWidth - 176) {
+    element.classList.add('controls-left');
   }
   element.dataset.widgetId = widget.id;
   element.style.left = `${widget.x}px`;
@@ -303,10 +318,24 @@ function widgetShell(widget) {
   element.style.zIndex = widget.z_index;
   element.style.setProperty('--widget-bg', data.background || 'rgba(255,255,255,0.84)');
   element.style.setProperty('--word-color', data.color || '#050406');
+  element.style.setProperty('--player-color', data.playerColor || '#1b1b1d');
 
   element.addEventListener('pointerdown', () => {
     $$('.art-widget').forEach((item) => item.classList.remove('selected'));
     element.classList.add('selected');
+    element.classList.add('controls-open');
+  });
+  element.addEventListener('pointerenter', () => {
+    element.classList.add('controls-open');
+  });
+  element.addEventListener('pointerleave', () => {
+    element.classList.remove('controls-open');
+  });
+  element.addEventListener('focusin', () => {
+    element.classList.add('controls-open');
+  });
+  element.addEventListener('focusout', () => {
+    element.classList.remove('controls-open');
   });
 
   if (canEdit()) {
@@ -314,15 +343,16 @@ function widgetShell(widget) {
     handle.className = 'move-handle';
     handle.type = 'button';
     handle.title = 'Move';
-    handle.innerHTML = '<i data-lucide="grip"></i>';
+    handle.innerHTML = '<span class="drag-dots" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
     handle.addEventListener('pointerdown', (event) => startMove(event, widget, element));
     element.appendChild(handle);
 
     const menu = document.createElement('div');
-    menu.className = 'widget-menu';
+    menu.className = `widget-menu ${widget.type === 'music' ? 'music-widget-menu' : 'color-widget-menu'}`;
 
-    if (widget.type === 'canvas' || widget.type === 'wordbox') {
-      widgetColors.forEach((color) => {
+    if (widget.type === 'canvas' || widget.type === 'wordbox' || widget.type === 'music') {
+      const palette = widget.type === 'music' ? musicPlayerColors : widgetColors;
+      palette.forEach((color) => {
         const swatch = document.createElement('button');
         swatch.className = 'mini-swatch';
         swatch.type = 'button';
@@ -330,9 +360,10 @@ function widgetShell(widget) {
         swatch.style.background = color;
         swatch.addEventListener('click', (event) => {
           event.stopPropagation();
-          const nextData = { ...widgetData(widget), background: color };
+          const key = widget.type === 'music' ? 'playerColor' : 'background';
+          const nextData = { ...widgetData(widget), [key]: color };
           scheduleWidgetSave(widget, { data: nextData }, 120);
-          element.style.setProperty('--widget-bg', color);
+          element.style.setProperty(widget.type === 'music' ? '--player-color' : '--widget-bg', color);
         });
         menu.appendChild(swatch);
       });
@@ -351,6 +382,14 @@ function widgetShell(widget) {
     });
     menu.appendChild(remove);
     element.appendChild(menu);
+
+    const resize = document.createElement('button');
+    resize.className = 'resize-handle';
+    resize.type = 'button';
+    resize.title = 'Resize';
+    resize.innerHTML = '<i data-lucide="move-diagonal-2"></i>';
+    resize.addEventListener('pointerdown', (event) => startResize(event, widget, element));
+    element.appendChild(resize);
   }
 
   return element;
@@ -368,10 +407,10 @@ function startMove(event, widget, element) {
     originalX: widget.x,
     originalY: widget.y
   };
-  element.setPointerCapture(event.pointerId);
-  element.addEventListener('pointermove', moveWidget);
-  element.addEventListener('pointerup', stopMove, { once: true });
-  element.addEventListener('pointercancel', stopMove, { once: true });
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  window.addEventListener('pointermove', moveWidget);
+  window.addEventListener('pointerup', stopMove, { once: true });
+  window.addEventListener('pointercancel', stopMove, { once: true });
 }
 
 function moveWidget(event) {
@@ -389,8 +428,65 @@ function moveWidget(event) {
 
 function stopMove() {
   if (!state.moving) return;
+  window.removeEventListener('pointermove', moveWidget);
   scheduleWidgetSave(state.moving.widget, { x: state.moving.widget.x, y: state.moving.widget.y }, 80);
   state.moving = null;
+}
+
+function startResize(event, widget, element) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  state.resizing = {
+    widget,
+    element,
+    startX: event.clientX,
+    startY: event.clientY,
+    originalWidth: widget.width,
+    originalHeight: widget.height,
+    aspectRatio: widget.width / widget.height,
+    keepRatio: widget.type === 'music'
+  };
+
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  window.addEventListener('pointermove', resizeWidget);
+  window.addEventListener('pointerup', stopResize, { once: true });
+  window.addEventListener('pointercancel', stopResize, { once: true });
+}
+
+function resizeWidget(event) {
+  if (!state.resizing) return;
+  event.preventDefault();
+
+  const { widget, element, startX, startY, originalWidth, originalHeight, aspectRatio, keepRatio } = state.resizing;
+  const minWidth = widget.type === 'music' ? 180 : 48;
+  const minHeight = widget.type === 'music' ? 84 : 48;
+  let width = Math.max(minWidth, originalWidth + event.clientX - startX);
+  let height = Math.max(minHeight, originalHeight + event.clientY - startY);
+
+  if (keepRatio) {
+    if (Math.abs(event.clientY - startY) > Math.abs(event.clientX - startX)) {
+      width = height * aspectRatio;
+    } else {
+      height = width / aspectRatio;
+    }
+  }
+
+  widget.width = Math.round(width);
+  widget.height = Math.round(height);
+  element.style.width = `${widget.width}px`;
+  element.style.height = `${widget.height}px`;
+}
+
+function stopResize() {
+  if (!state.resizing) return;
+  window.removeEventListener('pointermove', resizeWidget);
+  scheduleWidgetSave(
+    state.resizing.widget,
+    { width: state.resizing.widget.width, height: state.resizing.widget.height },
+    80
+  );
+  state.resizing = null;
 }
 
 function renderCanvasWidget(widget) {
@@ -498,23 +594,106 @@ function renderMusicWidget(widget) {
   const data = widgetData(widget);
   const element = widgetShell(widget);
   const music = document.createElement('div');
-  music.className = `music-widget ${data.presentation === 'player' ? 'player' : 'cover'}`;
+  const presentation = data.presentation === 'player' ? 'player' : 'cover';
+  music.className = `music-widget ${presentation}`;
+  music.style.setProperty('--player-color', data.playerColor || '#1b1b1d');
 
-  const art = document.createElement('img');
-  art.alt = '';
-  art.src = data.artwork || '';
-  music.appendChild(art);
+  const audio = document.createElement('audio');
+  audio.className = 'music-audio';
+  audio.preload = 'metadata';
+  audio.src = data.previewUrl || '';
 
-  const meta = document.createElement('div');
-  meta.className = 'music-meta';
-  meta.innerHTML = `
-    <div class="music-title"></div>
-    <div class="music-artist"></div>
-    <audio controls src="${data.previewUrl || ''}"></audio>
-  `;
-  $('.music-title', meta).textContent = data.title || 'Untitled';
-  $('.music-artist', meta).textContent = data.artist || '';
-  music.appendChild(meta);
+  const makeImage = () => {
+    const image = document.createElement('img');
+    image.alt = '';
+    image.src = data.artwork || '';
+    return image;
+  };
+
+  const makeTitle = () => {
+    const title = document.createElement('div');
+    title.className = 'music-title';
+    title.textContent = data.title || 'Untitled';
+    return title;
+  };
+
+  const makeArtist = () => {
+    const artist = document.createElement('div');
+    artist.className = 'music-artist';
+    artist.textContent = data.artist || '';
+    return artist;
+  };
+
+  if (presentation === 'player') {
+    const screen = document.createElement('div');
+    screen.className = 'music-screen';
+    screen.appendChild(makeImage());
+
+    const controls = document.createElement('div');
+    controls.className = 'music-controls';
+    controls.innerHTML = `
+      <div class="wheel-label">MUSIC</div>
+      <button class="wheel-button wheel-prev" type="button" aria-label="Previous"><i data-lucide="skip-back"></i></button>
+      <button class="wheel-button wheel-next" type="button" aria-label="Next"><i data-lucide="skip-forward"></i></button>
+      <button class="wheel-button wheel-play music-preview-button" type="button" aria-label="Play preview"><i data-lucide="play"></i></button>
+      <span class="wheel-center" aria-hidden="true"></span>
+    `;
+
+    const meta = document.createElement('div');
+    meta.className = 'music-meta player-meta';
+    meta.appendChild(makeTitle());
+    meta.appendChild(makeArtist());
+
+    music.appendChild(screen);
+    music.appendChild(controls);
+    music.appendChild(meta);
+  } else {
+    const frame = document.createElement('div');
+    frame.className = 'cover-art-frame';
+    frame.appendChild(makeImage());
+
+    const meta = document.createElement('div');
+    meta.className = 'music-meta';
+    meta.appendChild(makeTitle());
+    meta.appendChild(makeArtist());
+    const play = document.createElement('button');
+    play.className = 'music-inline-play music-preview-button';
+    play.type = 'button';
+    play.setAttribute('aria-label', 'Play preview');
+    play.innerHTML = '<i data-lucide="play"></i>';
+    meta.appendChild(play);
+
+    music.appendChild(frame);
+    music.appendChild(meta);
+  }
+
+  music.appendChild(audio);
+  $$('.music-preview-button', music).forEach((button) => {
+    button.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (audio.paused) {
+        try {
+          await audio.play();
+          button.classList.add('playing');
+          button.innerHTML = '<i data-lucide="pause"></i>';
+        } catch {
+          showToast('Preview is not available for this song.');
+        }
+      } else {
+        audio.pause();
+        button.classList.remove('playing');
+        button.innerHTML = '<i data-lucide="play"></i>';
+      }
+      refreshIcons();
+    });
+  });
+  audio.addEventListener('ended', () => {
+    $$('.music-preview-button', music).forEach((button) => {
+      button.classList.remove('playing');
+      button.innerHTML = '<i data-lucide="play"></i>';
+    });
+    refreshIcons();
+  });
 
   element.appendChild(music);
   return element;
@@ -639,7 +818,10 @@ $$('.tool-button').forEach((button) => {
   button.addEventListener('click', () => {
     if (button.dataset.tool === 'music') {
       selectTool(null);
-      if (canEdit()) musicDialog.showModal();
+      if (canEdit()) {
+        setMusicPresentation(state.pendingPresentation || 'cover');
+        musicDialog.showModal();
+      }
       return;
     }
     selectTool(button.dataset.tool);
@@ -771,8 +953,7 @@ musicSearchForm.addEventListener('submit', async (event) => {
 
 $$('[data-presentation]').forEach((button) => {
   button.addEventListener('click', () => {
-    state.pendingPresentation = button.dataset.presentation;
-    $$('[data-presentation]').forEach((item) => item.classList.toggle('active', item === button));
+    setMusicPresentation(button.dataset.presentation);
   });
 });
 
@@ -784,14 +965,14 @@ applyMusicButton.addEventListener('click', async () => {
 
   const presentation = state.pendingPresentation;
   const rect = {
-    x: Math.round(Math.max(120, board.clientWidth / 2 - (presentation === 'cover' ? 140 : 180))),
-    y: Math.round(Math.max(100, board.clientHeight / 2 - (presentation === 'cover' ? 160 : 60))),
-    width: presentation === 'cover' ? 280 : 360,
-    height: presentation === 'cover' ? 330 : 100
+    x: Math.round(Math.max(120, board.clientWidth / 2 - (presentation === 'cover' ? 150 : 260))),
+    y: Math.round(Math.max(100, board.clientHeight / 2 - (presentation === 'cover' ? 175 : 110))),
+    width: presentation === 'cover' ? 300 : 520,
+    height: presentation === 'cover' ? 350 : 220
   };
 
   try {
-    await createWidget('music', rect, { ...state.pendingMusic, presentation });
+    await createWidget('music', rect, { ...state.pendingMusic, presentation, playerColor: '#1b1b1d' });
     musicDialog.close();
     musicResults.innerHTML = '';
     musicSearchInput.value = '';
@@ -807,5 +988,6 @@ window.addEventListener('resize', () => {
 });
 
 createHearts();
+setMusicPresentation('cover');
 refreshIcons();
 checkSession();

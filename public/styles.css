@@ -52,13 +52,13 @@ button {
 .gradient-field {
   z-index: -3;
   background:
-    radial-gradient(circle at 50% 52%, rgba(125, 56, 255, 0.2), transparent 16%),
-    radial-gradient(circle at 66% 62%, rgba(112, 3, 34, 0.5), transparent 34%),
-    radial-gradient(circle at 31% 38%, rgba(58, 14, 104, 0.55), transparent 28%),
-    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.08), transparent 10%),
-    linear-gradient(135deg, #010001 0%, #050309 22%, #170820 48%, #3d0618 74%, #020103 100%);
+    radial-gradient(circle at 50% 52%, rgba(125, 56, 255, 0.12), transparent 16%),
+    radial-gradient(circle at 66% 62%, rgba(84, 3, 27, 0.42), transparent 34%),
+    radial-gradient(circle at 31% 38%, rgba(42, 10, 75, 0.36), transparent 28%),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.04), transparent 10%),
+    linear-gradient(135deg, #000 0%, #020103 24%, #09030e 50%, #21030d 74%, #000 100%);
   background-size: 180% 180%;
-  animation: gradientShift 16s ease-in-out infinite alternate;
+  animation: gradientShift 34s ease-in-out infinite alternate;
 }
 
 .gradient-field::after {
@@ -66,19 +66,20 @@ button {
   inset: 0;
   content: "";
   background:
-    radial-gradient(ellipse at center, transparent 0%, rgba(2, 1, 4, 0.2) 42%, rgba(0, 0, 0, 0.88) 100%),
-    linear-gradient(115deg, rgba(255, 255, 255, 0.05), transparent 31%, rgba(0, 0, 0, 0.54));
+    radial-gradient(ellipse at center, rgba(0, 0, 0, 0.04) 0%, rgba(2, 1, 4, 0.42) 42%, rgba(0, 0, 0, 0.94) 100%),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.025), transparent 31%, rgba(0, 0, 0, 0.68));
   mix-blend-mode: normal;
-  animation: sheen 12s ease-in-out infinite alternate;
+  animation: sheen 28s ease-in-out infinite alternate;
 }
 
 .heart-field {
   z-index: -2;
   overflow: hidden;
   background:
-    radial-gradient(circle at 50% 53%, rgba(255, 255, 255, 0.1), transparent 3%),
-    radial-gradient(circle at 50% 53%, rgba(125, 56, 255, 0.14), transparent 18%),
-    radial-gradient(circle at 50% 66%, rgba(120, 6, 39, 0.28), transparent 32%);
+    radial-gradient(circle at 50% 53%, rgba(255, 255, 255, 0.05), transparent 3%),
+    radial-gradient(circle at 50% 53%, rgba(125, 56, 255, 0.08), transparent 18%),
+    radial-gradient(circle at 50% 66%, rgba(80, 3, 26, 0.18), transparent 32%),
+    radial-gradient(ellipse at center, transparent 20%, rgba(0, 0, 0, 0.58) 86%);
 }
 
 .heart {
@@ -92,7 +93,7 @@ button {
   opacity: 0;
   transform: translate(-50%, -50%) rotate(-45deg) scale(var(--start-scale));
   transform-origin: center;
-  animation: heartBloom var(--duration) cubic-bezier(0.14, 0.04, 0.22, 1) infinite;
+  animation: heartBloom var(--duration) cubic-bezier(0.18, 0.02, 0.2, 1) infinite;
   animation-delay: var(--delay);
   filter: blur(var(--blur));
   mix-blend-mode: screen;
@@ -408,10 +409,6 @@ select:focus {
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
-  overflow: hidden;
-}
-
-.art-widget.external-controls {
   overflow: visible;
 }
 
@@ -419,11 +416,18 @@ select:focus {
   outline: 2px solid rgba(125, 56, 255, 0.78);
 }
 
+.art-widget:hover,
+.art-widget.controls-open,
+.art-widget.selected {
+  z-index: 80 !important;
+}
+
 .art-widget canvas {
   width: 100%;
   height: 100%;
   display: block;
   background: var(--widget-bg, rgba(255, 255, 255, 0.82));
+  border-radius: inherit;
   touch-action: none;
 }
 
@@ -437,6 +441,7 @@ select:focus {
   line-height: 1.22;
   outline: none;
   overflow: auto;
+  border-radius: inherit;
 }
 
 .external-controls .wordbox-content {
@@ -447,32 +452,130 @@ select:focus {
 .music-widget {
   width: 100%;
   height: 100%;
-  display: grid;
-  grid-template-rows: 1fr auto;
-  background: rgba(5, 4, 6, 0.82);
+  background: var(--player-color, rgba(5, 4, 6, 0.82));
   color: #fff;
+  border-radius: inherit;
+  overflow: hidden;
 }
 
-.music-widget.cover img {
+.cover-art-frame {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.74);
+  border: 2px solid rgba(255, 255, 255, 0.52);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.78);
+}
+
+.music-widget.cover {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 10px;
+}
+
+.cover-art-frame img,
+.music-screen img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   min-height: 0;
 }
 
 .music-widget.player {
-  grid-template-columns: 74px 1fr;
-  grid-template-rows: 1fr;
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(98px, 38%);
+  grid-template-rows: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  column-gap: clamp(12px, 4%, 26px);
+  padding: clamp(10px, 5%, 24px);
+  background:
+    radial-gradient(circle at 25% 18%, rgba(255, 255, 255, 0.16), transparent 26%),
+    linear-gradient(135deg, color-mix(in srgb, var(--player-color, #1b1b1d) 72%, white), var(--player-color, #1b1b1d) 62%, color-mix(in srgb, var(--player-color, #1b1b1d) 78%, black));
+  border-radius: 26px;
 }
 
-.music-widget.player img {
-  width: 74px;
-  height: 74px;
-  border-radius: 6px;
-  object-fit: cover;
+.music-screen {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.9);
+  border: 3px solid rgba(255, 255, 255, 0.34);
+  border-radius: 7px;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.9),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.music-controls {
+  position: relative;
+  aspect-ratio: 1;
+  width: min(100%, 150px);
+  justify-self: center;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, transparent 0 24%, rgba(0, 0, 0, 0.22) 25% 26%, rgba(255, 255, 255, 0.72) 27% 100%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(210, 203, 214, 0.76));
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.12),
+    0 6px 16px rgba(0, 0, 0, 0.22);
+}
+
+.music-widget.player:is([style*="1b1b1d"], [style*="2a2a2a"], [style*="421062"], [style*="5a0719"], [style*="7b1238"], [style*="1f1230"]) .music-controls {
+  background:
+    radial-gradient(circle at center, transparent 0 24%, rgba(255, 255, 255, 0.08) 25% 26%, rgba(22, 22, 23, 0.92) 27% 100%),
+    linear-gradient(135deg, rgba(58, 58, 60, 0.96), rgba(12, 12, 13, 0.95));
+}
+
+.wheel-label {
+  position: absolute;
+  top: 12%;
+  font-weight: 800;
+  font-size: clamp(10px, 1.8vw, 20px);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.wheel-button {
+  position: absolute;
+  width: clamp(22px, 22%, 34px);
+  height: clamp(22px, 22%, 34px);
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.86);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+}
+
+.music-controls .wheel-prev {
+  left: 13%;
+}
+
+.music-controls .wheel-next {
+  right: 13%;
+}
+
+.music-controls .wheel-play {
+  bottom: 11%;
+}
+
+.wheel-center {
+  width: 33%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.24), transparent 38%),
+    color-mix(in srgb, var(--player-color, #1b1b1d) 70%, white);
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.22),
+    0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .music-meta {
@@ -482,6 +585,11 @@ select:focus {
   min-width: 0;
   padding: 8px 10px 10px;
   text-align: center;
+}
+
+.player-meta {
+  grid-column: 1 / -1;
+  padding: 0;
 }
 
 .music-title,
@@ -499,16 +607,28 @@ select:focus {
   color: rgba(255, 255, 255, 0.72);
 }
 
-audio {
-  width: 100%;
-  height: 32px;
+.music-audio {
+  display: none;
+}
+
+.music-inline-play {
+  width: 38px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.44);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  padding: 0;
 }
 
 .widget-menu {
   position: absolute;
   z-index: 8;
-  top: 6px;
-  right: 6px;
+  top: 0;
+  right: auto;
+  left: calc(100% + 8px);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -519,34 +639,31 @@ audio {
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 7px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms ease;
   backdrop-filter: blur(12px);
 }
 
 .art-widget:hover .widget-menu,
-.art-widget.selected .widget-menu {
+.art-widget.controls-open .widget-menu,
+.art-widget:focus-within .widget-menu {
   opacity: 1;
+  pointer-events: auto;
 }
 
-.external-controls .widget-menu,
-.external-controls .move-handle {
-  opacity: 1;
-}
-
-.external-controls .widget-menu {
-  top: 0;
-  right: auto;
-  left: calc(100% + 8px);
-}
-
-.external-controls.controls-left .widget-menu {
+.controls-left .widget-menu {
   right: calc(100% + 8px);
   left: auto;
 }
 
+.music-widget-menu {
+  width: 92px;
+}
+
 .mini-swatch,
 .mini-button,
-.move-handle {
+.move-handle,
+.resize-handle {
   width: 22px;
   height: 22px;
   display: grid;
@@ -561,7 +678,8 @@ audio {
 }
 
 .mini-button,
-.move-handle {
+.move-handle,
+.resize-handle {
   color: #fff;
   background: rgba(5, 4, 6, 0.84);
 }
@@ -569,27 +687,57 @@ audio {
 .move-handle {
   position: absolute;
   z-index: 8;
-  top: 6px;
-  left: 6px;
+  top: 50%;
+  right: calc(100% + 8px);
+  left: auto;
   cursor: grab;
-  opacity: 0;
+  opacity: 0.74;
+  transform: translateY(-50%);
   transition: opacity 120ms ease;
 }
 
-.external-controls .move-handle {
-  top: 0;
-  right: calc(100% + 8px);
-  left: auto;
-}
-
-.external-controls.controls-left .move-handle {
+.controls-left .move-handle {
   right: auto;
   left: calc(100% + 8px);
+}
+
+.drag-dots {
+  display: grid;
+  grid-template-columns: repeat(3, 3px);
+  grid-template-rows: repeat(3, 3px);
+  place-content: center;
+  gap: 2px;
+}
+
+.drag-dots span {
+  width: 3px;
+  height: 3px;
+  background: currentColor;
+  border-radius: 50%;
 }
 
 .art-widget:hover .move-handle,
 .art-widget.selected .move-handle {
   opacity: 1;
+}
+
+.resize-handle {
+  position: absolute;
+  right: -13px;
+  bottom: -13px;
+  z-index: 8;
+  cursor: nwse-resize;
+  opacity: 0.35;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.art-widget:hover .resize-handle,
+.art-widget:focus-within .resize-handle {
+  opacity: 0.9;
+}
+
+.resize-handle:hover {
+  transform: scale(1.08);
 }
 
 .modal {
@@ -680,6 +828,13 @@ audio {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
+}
+
+.music-choice .secondary-button.active {
+  color: #fff;
+  background: #8f8991;
+  border-color: rgba(0, 0, 0, 0.24);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.24);
 }
 
 .toast {
