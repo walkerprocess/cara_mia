@@ -6,8 +6,8 @@
   --purple: #7d38ff;
   --red: #ef314d;
   --grey: #d8d2d7;
-  --panel: rgba(255, 250, 252, 0.7);
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  --panel: rgba(18, 14, 22, 0.72);
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
   font-family: "Bricolage Grotesque", Arial, sans-serif;
 }
 
@@ -22,7 +22,8 @@ body {
 }
 
 body {
-  color: var(--black);
+  color: var(--white);
+  background: #020103;
   overflow: hidden;
 }
 
@@ -51,12 +52,13 @@ button {
 .gradient-field {
   z-index: -3;
   background:
-    radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.95), transparent 24%),
-    radial-gradient(circle at 80% 12%, rgba(239, 49, 77, 0.68), transparent 26%),
-    radial-gradient(circle at 52% 80%, rgba(125, 56, 255, 0.74), transparent 30%),
-    linear-gradient(135deg, #050406, #fffafb 32%, #7d38ff 58%, #ef314d 78%, #050406);
-  background-size: 220% 220%;
-  animation: gradientShift 13s ease-in-out infinite alternate;
+    radial-gradient(circle at 50% 52%, rgba(125, 56, 255, 0.2), transparent 16%),
+    radial-gradient(circle at 66% 62%, rgba(112, 3, 34, 0.5), transparent 34%),
+    radial-gradient(circle at 31% 38%, rgba(58, 14, 104, 0.55), transparent 28%),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.08), transparent 10%),
+    linear-gradient(135deg, #010001 0%, #050309 22%, #170820 48%, #3d0618 74%, #020103 100%);
+  background-size: 180% 180%;
+  animation: gradientShift 16s ease-in-out infinite alternate;
 }
 
 .gradient-field::after {
@@ -64,30 +66,36 @@ button {
   inset: 0;
   content: "";
   background:
-    linear-gradient(115deg, rgba(255, 255, 255, 0.42), transparent 32%, rgba(0, 0, 0, 0.38)),
-    radial-gradient(circle at 70% 55%, rgba(255, 255, 255, 0.2), transparent 22%);
-  mix-blend-mode: screen;
-  animation: sheen 9s ease-in-out infinite alternate;
+    radial-gradient(ellipse at center, transparent 0%, rgba(2, 1, 4, 0.2) 42%, rgba(0, 0, 0, 0.88) 100%),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.05), transparent 31%, rgba(0, 0, 0, 0.54));
+  mix-blend-mode: normal;
+  animation: sheen 12s ease-in-out infinite alternate;
 }
 
 .heart-field {
   z-index: -2;
   overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 53%, rgba(255, 255, 255, 0.1), transparent 3%),
+    radial-gradient(circle at 50% 53%, rgba(125, 56, 255, 0.14), transparent 18%),
+    radial-gradient(circle at 50% 66%, rgba(120, 6, 39, 0.28), transparent 32%);
 }
 
 .heart {
-  --heart-size: 28px;
+  --heart-size: 72px;
   position: absolute;
-  left: var(--left);
-  bottom: -18vh;
+  left: 50%;
+  top: 56%;
   width: var(--heart-size);
   height: var(--heart-size);
   background: var(--heart-color);
   opacity: 0;
-  transform: rotate(-45deg) scale(0.1);
-  animation: heartBloom var(--duration) linear infinite;
+  transform: translate(-50%, -50%) rotate(-45deg) scale(var(--start-scale));
+  transform-origin: center;
+  animation: heartBloom var(--duration) cubic-bezier(0.14, 0.04, 0.22, 1) infinite;
   animation-delay: var(--delay);
   filter: blur(var(--blur));
+  mix-blend-mode: screen;
 }
 
 .heart::before,
@@ -110,6 +118,11 @@ button {
   left: 50%;
 }
 
+.heart:nth-child(3n),
+.heart:nth-child(7n) {
+  mix-blend-mode: normal;
+}
+
 .view {
   position: relative;
   min-height: 100vh;
@@ -124,8 +137,8 @@ button {
 .auth-panel {
   width: min(420px, calc(100vw - 40px));
   padding: 28px;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(245, 241, 246, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.34);
   border-radius: 8px;
   box-shadow: var(--shadow);
   backdrop-filter: blur(20px);
@@ -284,8 +297,8 @@ select:focus {
   gap: 8px;
   width: 132px;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.64);
+  background: rgba(16, 12, 21, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
@@ -298,15 +311,15 @@ select:focus {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  color: #09070b;
-  background: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 250, 252, 0.9);
+  background: rgba(255, 255, 255, 0.12);
   font-weight: 800;
   text-align: left;
 }
 
 .tool-button.active {
   color: #fff;
-  background: #050406;
+  background: linear-gradient(135deg, #050406, #421062 52%, #71051e);
 }
 
 .tool-button:disabled,
@@ -321,12 +334,12 @@ select:focus {
   z-index: 27;
   top: 98px;
   left: 162px;
-  width: 78px;
+  width: 132px;
   padding: 8px;
   display: grid;
   gap: 12px;
-  background: rgba(216, 210, 215, 0.74);
-  border: 1px solid rgba(255, 255, 255, 0.68);
+  background: rgba(16, 12, 21, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   box-shadow: 0 20px 54px rgba(0, 0, 0, 0.26);
   backdrop-filter: blur(18px);
@@ -334,15 +347,16 @@ select:focus {
 
 .utensils {
   display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 7px;
 }
 
 .utensil {
-  width: 60px;
+  width: 54px;
   height: 38px;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.84);
 }
 
 .utensil.active {
@@ -352,7 +366,7 @@ select:focus {
 
 .color-rail {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 7px;
 }
 
@@ -391,10 +405,14 @@ select:focus {
   z-index: 2;
   min-width: 40px;
   min-height: 40px;
-  border: 1px solid rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
   overflow: hidden;
+}
+
+.art-widget.external-controls {
+  overflow: visible;
 }
 
 .art-widget.selected {
@@ -419,6 +437,11 @@ select:focus {
   line-height: 1.22;
   outline: none;
   overflow: auto;
+}
+
+.external-controls .wordbox-content {
+  padding: 10px;
+  font-size: 16px;
 }
 
 .music-widget {
@@ -455,7 +478,10 @@ select:focus {
 .music-meta {
   display: grid;
   gap: 6px;
+  justify-items: center;
   min-width: 0;
+  padding: 8px 10px 10px;
+  text-align: center;
 }
 
 .music-title,
@@ -485,9 +511,12 @@ audio {
   right: 6px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 5px;
   padding: 4px;
-  background: rgba(216, 210, 215, 0.76);
+  width: 126px;
+  background: rgba(14, 10, 18, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 7px;
   opacity: 0;
   transition: opacity 120ms ease;
@@ -499,11 +528,27 @@ audio {
   opacity: 1;
 }
 
+.external-controls .widget-menu,
+.external-controls .move-handle {
+  opacity: 1;
+}
+
+.external-controls .widget-menu {
+  top: 0;
+  right: auto;
+  left: calc(100% + 8px);
+}
+
+.external-controls.controls-left .widget-menu {
+  right: calc(100% + 8px);
+  left: auto;
+}
+
 .mini-swatch,
 .mini-button,
 .move-handle {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -512,13 +557,13 @@ audio {
 }
 
 .mini-swatch {
-  border: 1px solid rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.42);
 }
 
 .mini-button,
 .move-handle {
-  color: #050406;
-  background: rgba(255, 255, 255, 0.78);
+  color: #fff;
+  background: rgba(5, 4, 6, 0.84);
 }
 
 .move-handle {
@@ -529,6 +574,17 @@ audio {
   cursor: grab;
   opacity: 0;
   transition: opacity 120ms ease;
+}
+
+.external-controls .move-handle {
+  top: 0;
+  right: calc(100% + 8px);
+  left: auto;
+}
+
+.external-controls.controls-left .move-handle {
+  right: auto;
+  left: calc(100% + 8px);
 }
 
 .art-widget:hover .move-handle,
@@ -649,38 +705,41 @@ audio {
 
 @keyframes gradientShift {
   0% {
-    background-position: 0% 40%;
+    background-position: 0% 38%;
   }
   45% {
-    background-position: 80% 15%;
+    background-position: 76% 18%;
   }
   100% {
-    background-position: 35% 95%;
+    background-position: 42% 92%;
   }
 }
 
 @keyframes sheen {
   from {
-    opacity: 0.46;
-    transform: translateX(-1%);
+    opacity: 0.74;
+    transform: scale(1);
   }
   to {
-    opacity: 0.88;
-    transform: translateX(1.5%);
+    opacity: 1;
+    transform: scale(1.02);
   }
 }
 
 @keyframes heartBloom {
   0% {
     opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(-45deg) scale(0.08);
+    transform: translate(-50%, -50%) rotate(-45deg) scale(var(--start-scale));
   }
-  12% {
+  14% {
+    opacity: var(--heart-opacity);
+  }
+  64% {
     opacity: var(--heart-opacity);
   }
   100% {
     opacity: 0;
-    transform: translate3d(var(--drift), -126vh, 0) rotate(-45deg) scale(var(--scale));
+    transform: translate(-50%, -50%) rotate(-45deg) scale(var(--end-scale));
   }
 }
 
@@ -751,6 +810,21 @@ audio {
   .color-rail {
     grid-template-columns: repeat(6, 26px);
     justify-content: center;
+  }
+
+  .external-controls .widget-menu,
+  .external-controls.controls-left .widget-menu {
+    top: -38px;
+    right: auto;
+    left: 0;
+    width: min(180px, calc(100vw - 20px));
+  }
+
+  .external-controls .move-handle,
+  .external-controls.controls-left .move-handle {
+    top: -38px;
+    right: 0;
+    left: auto;
   }
 
   .music-choice {

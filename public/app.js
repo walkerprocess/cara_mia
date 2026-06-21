@@ -1,8 +1,54 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-const colors = ['#050406', '#ffffff', '#7d38ff', '#ef314d', '#ff95ac', '#d8d2d7'];
-const widgetColors = ['rgba(255,255,255,0.84)', 'rgba(5,4,6,0.88)', 'rgba(125,56,255,0.72)', 'rgba(239,49,77,0.72)'];
+const colors = [
+  '#050406',
+  '#ffffff',
+  '#d8d2d7',
+  '#8d8a94',
+  '#7d38ff',
+  '#b06cff',
+  '#4f178f',
+  '#24103d',
+  '#ef314d',
+  '#a90f2e',
+  '#5a0719',
+  '#ff95ac',
+  '#ff6b2d',
+  '#ffc857',
+  '#2de2e6',
+  '#5dff9b',
+  '#2f80ed',
+  '#111827',
+  '#7a4a2e',
+  '#f7e7ce',
+  '#ff4fd8',
+  '#7f1d1d',
+  '#334155',
+  '#000000'
+];
+const widgetColors = [
+  'rgba(255,255,255,0.88)',
+  'rgba(245,241,246,0.76)',
+  'rgba(216,210,215,0.72)',
+  'rgba(140,134,148,0.76)',
+  'rgba(5,4,6,0.9)',
+  'rgba(24,12,35,0.9)',
+  'rgba(38,16,64,0.82)',
+  'rgba(79,23,143,0.78)',
+  'rgba(125,56,255,0.72)',
+  'rgba(176,108,255,0.66)',
+  'rgba(90,7,25,0.84)',
+  'rgba(169,15,46,0.76)',
+  'rgba(239,49,77,0.7)',
+  'rgba(255,149,172,0.66)',
+  'rgba(47,128,237,0.68)',
+  'rgba(45,226,230,0.62)',
+  'rgba(93,255,155,0.56)',
+  'rgba(255,200,87,0.64)',
+  'rgba(127,29,29,0.78)',
+  'rgba(51,65,85,0.78)'
+];
 
 const state = {
   user: null,
@@ -81,28 +127,30 @@ async function api(path, options = {}) {
 function createHearts() {
   const field = $('#heartField');
   field.innerHTML = '';
+  const gothicColors = [
+    'rgba(2, 1, 4, 0.94)',
+    'rgba(16, 13, 21, 0.9)',
+    'rgba(50, 45, 58, 0.72)',
+    'rgba(115, 105, 127, 0.5)',
+    'rgba(33, 9, 56, 0.72)',
+    'rgba(91, 19, 143, 0.52)',
+    'rgba(72, 3, 24, 0.7)',
+    'rgba(150, 13, 47, 0.48)',
+    'rgba(235, 225, 238, 0.14)'
+  ];
 
-  for (let index = 0; index < 34; index += 1) {
+  for (let index = 0; index < 30; index += 1) {
     const heart = document.createElement('span');
-    const shade = index % 4;
     heart.className = 'heart';
-    heart.style.setProperty('--left', `${Math.random() * 105 - 3}%`);
-    heart.style.setProperty('--duration', `${9 + Math.random() * 11}s`);
-    heart.style.setProperty('--delay', `${Math.random() * -18}s`);
-    heart.style.setProperty('--scale', `${2.2 + Math.random() * 6.5}`);
-    heart.style.setProperty('--drift', `${Math.random() * 260 - 130}px`);
-    heart.style.setProperty('--blur', `${Math.random() * 1.7}px`);
-    heart.style.setProperty('--heart-opacity', `${0.16 + Math.random() * 0.28}`);
-    heart.style.setProperty('--heart-size', `${12 + Math.random() * 38}px`);
-    heart.style.setProperty(
-      '--heart-color',
-      [
-        'rgba(255,255,255,0.5)',
-        'rgba(125,56,255,0.42)',
-        'rgba(239,49,77,0.42)',
-        'rgba(5,4,6,0.28)'
-      ][shade]
-    );
+    heart.style.zIndex = String(30 - index);
+    heart.style.setProperty('--duration', `${10 + (index % 6) * 0.9}s`);
+    heart.style.setProperty('--delay', `${index * -0.46}s`);
+    heart.style.setProperty('--start-scale', `${0.06 + (index % 4) * 0.015}`);
+    heart.style.setProperty('--end-scale', `${4.6 + (index % 8) * 0.42}`);
+    heart.style.setProperty('--blur', `${index % 9 === 8 ? 1.4 : 0}px`);
+    heart.style.setProperty('--heart-opacity', `${0.42 + (index % 5) * 0.055}`);
+    heart.style.setProperty('--heart-size', `${48 + (index % 10) * 18}px`);
+    heart.style.setProperty('--heart-color', gothicColors[index % gothicColors.length]);
     field.appendChild(heart);
   }
 }
@@ -241,6 +289,12 @@ function widgetShell(widget) {
   const data = widgetData(widget);
   const element = document.createElement('article');
   element.className = `art-widget ${widget.type}-shell`;
+  if ((widget.type === 'canvas' || widget.type === 'wordbox') && (widget.width < 164 || widget.height < 96)) {
+    element.classList.add('external-controls');
+    if (widget.x + widget.width > board.clientWidth - 176) {
+      element.classList.add('controls-left');
+    }
+  }
   element.dataset.widgetId = widget.id;
   element.style.left = `${widget.x}px`;
   element.style.top = `${widget.y}px`;
@@ -702,7 +756,7 @@ musicSearchForm.addEventListener('submit', async (event) => {
         </span>
       `;
       $('strong', button).textContent = track.title;
-      $('small', button).textContent = `${track.artist} · ${track.album || ''}`;
+      $('small', button).textContent = `${track.artist} - ${track.album || ''}`;
       button.addEventListener('click', () => {
         state.pendingMusic = track;
         $$('.music-result').forEach((item) => item.classList.toggle('active', item === button));
