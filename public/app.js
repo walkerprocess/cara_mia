@@ -50,14 +50,25 @@ const widgetColors = [
   'rgba(51,65,85,0.78)'
 ];
 const musicPlayerColors = [
+  '#f6e8f1',
+  '#efd6e4',
+  '#d7cbd3',
+  '#b7a7b7',
+  '#8e8191',
+  '#ffffff',
   '#1b1b1d',
   '#2a2a2a',
-  '#d7cbd3',
+  '#050406',
   '#f1bfd4',
+  '#ce8fab',
+  '#7b4c69',
   '#5a0719',
   '#7b1238',
+  '#a90f2e',
   '#421062',
-  '#1f1230'
+  '#1f1230',
+  '#24103d',
+  '#2f80ed'
 ];
 
 const state = {
@@ -71,11 +82,14 @@ const state = {
     size: 8
   },
   draft: null,
+  moveCandidate: null,
   moving: null,
   resizing: null,
   pendingMusic: null,
   pendingPresentation: 'cover',
-  saveTimers: new Map()
+  pendingAssetType: 'sticker',
+  saveTimers: new Map(),
+  controlTimers: new WeakMap()
 };
 
 const authView = $('#authView');
@@ -104,6 +118,11 @@ const musicSearchInput = $('#musicSearchInput');
 const musicResults = $('#musicResults');
 const musicChoice = $('#musicChoice');
 const applyMusicButton = $('#applyMusicButton');
+const assetDialog = $('#assetDialog');
+const assetDialogTitle = $('#assetDialogTitle');
+const assetSearchForm = $('#assetSearchForm');
+const assetSearchInput = $('#assetSearchInput');
+const assetResults = $('#assetResults');
 
 function refreshIcons() {
   if (window.lucide) {
@@ -214,6 +233,91 @@ function widgetData(widget) {
   return widget.data && typeof widget.data === 'object' ? widget.data : {};
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseHexColor(color) {
+  if (!color || !color.startsWith('#')) return { r: 27, g: 27, b: 29 };
+  const hex = color.slice(1);
+  const normalized = hex.length === 3
+    ? hex.split('').map((char) => `${char}${char}`).join('')
+    : hex;
+
+  if (normalized.length !== 6) return { r: 27, g: 27, b: 29 };
+  return {
+    r: Number.parseInt(normalized.slice(0, 2), 16),
+    g: Number.parseInt(normalized.slice(2, 4), 16),
+    b: Number.parseInt(normalized.slice(4, 6), 16)
+  };
+}
+
+function colorIsDark({ r, g, b }) {
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.46;
+}
+
+function musicAlpha(data) {
+  const alpha = Number(data.playerAlpha);
+  return Number.isFinite(alpha) ? clamp(alpha, 0.35, 1) : 0.88;
+}
+
+function setMusicVisualVars(target, data) {
+  const color = data.playerColor || '#f6e8f1';
+  const rgb = parseHexColor(color);
+  const dark = colorIsDark(rgb);
+  target.style.setProperty('--player-color', color);
+  target.style.setProperty('--player-rgb', `${rgb.r}, ${rgb.g}, ${rgb.b}`);
+  target.style.setProperty('--player-alpha', `${musicAlpha(data)}`);
+  target.style.setProperty('--player-ink', dark ? '#f8f4f8' : '#111016');
+  target.style.setProperty('--player-muted', dark ? 'rgba(255,255,255,0.68)' : 'rgba(17,16,22,0.58)');
+  target.style.setProperty('--player-track', dark ? 'rgba(255,255,255,0.22)' : 'rgba(17,16,22,0.14)');
+  target.style.setProperty('--player-fill', dark ? 'rgba(255,255,255,0.74)' : 'rgba(17,16,22,0.42)');
+}
+
+function applyMusicVisuals(element, data) {
+  setMusicVisualVars(element, data);
+  const music = $('.music-widget', element);
+  if (music) setMusicVisualVars(music, data);
+}
+
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const minutes = Math.floor(seconds / 60);
+  const remaining = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${remaining}`;
+}
+
+function showWidgetControls(element, hold = false) {
+  element.classList.add('controls-open');
+
+  if (!hold) return;
+
+  window.clearTimeout(state.controlTimers.get(element));
+  const timer = window.setTimeout(() => {
+    if (!element.matches(':hover')) {
+      element.classList.remove('controls-open');
+    }
+    state.controlTimers.delete(element);
+  }, 4000);
+  state.controlTimers.set(element, timer);
+}
+
+function hideWidgetControls(element) {
+  if (state.controlTimers.has(element)) return;
+  element.classList.remove('controls-open');
+}
+
+function isPassiveWidgetTarget(event, widget) {
+  const target = event.target;
+  if (target.closest('.widget-menu, .move-handle, .resize-handle, button, input, select, textarea, audio')) {
+    return false;
+  }
+  if (widget.type === 'canvas' && state.selectedTool === 'brush' && target.closest('canvas')) {
+    return false;
+  }
+  return true;
+}
+
 function setMusicPresentation(presentation) {
   state.pendingPresentation = presentation;
   $$('[data-presentation]').forEach((button) => {
@@ -318,24 +422,27 @@ function widgetShell(widget) {
   element.style.zIndex = widget.z_index;
   element.style.setProperty('--widget-bg', data.background || 'rgba(255,255,255,0.84)');
   element.style.setProperty('--word-color', data.color || '#050406');
-  element.style.setProperty('--player-color', data.playerColor || '#1b1b1d');
+  setMusicVisualVars(element, data);
 
-  element.addEventListener('pointerdown', () => {
+  element.addEventListener('pointerdown', (event) => {
     $$('.art-widget').forEach((item) => item.classList.remove('selected'));
     element.classList.add('selected');
-    element.classList.add('controls-open');
+    showWidgetControls(element, true);
+    if (canEdit() && isPassiveWidgetTarget(event, widget)) {
+      queueWidgetMove(event, widget, element);
+    }
   });
   element.addEventListener('pointerenter', () => {
-    element.classList.add('controls-open');
+    showWidgetControls(element);
   });
   element.addEventListener('pointerleave', () => {
-    element.classList.remove('controls-open');
+    hideWidgetControls(element);
   });
   element.addEventListener('focusin', () => {
-    element.classList.add('controls-open');
+    showWidgetControls(element);
   });
   element.addEventListener('focusout', () => {
-    element.classList.remove('controls-open');
+    hideWidgetControls(element);
   });
 
   if (canEdit()) {
@@ -363,10 +470,36 @@ function widgetShell(widget) {
           const key = widget.type === 'music' ? 'playerColor' : 'background';
           const nextData = { ...widgetData(widget), [key]: color };
           scheduleWidgetSave(widget, { data: nextData }, 120);
-          element.style.setProperty(widget.type === 'music' ? '--player-color' : '--widget-bg', color);
+          if (widget.type === 'music') {
+            applyMusicVisuals(element, nextData);
+          } else {
+            element.style.setProperty('--widget-bg', color);
+          }
         });
         menu.appendChild(swatch);
       });
+
+      if (widget.type === 'music') {
+        const opacityControl = document.createElement('label');
+        opacityControl.className = 'music-opacity-control';
+        opacityControl.title = 'Transparency';
+        opacityControl.innerHTML = '<i data-lucide="blend"></i>';
+
+        const opacityInput = document.createElement('input');
+        opacityInput.type = 'range';
+        opacityInput.min = '35';
+        opacityInput.max = '100';
+        opacityInput.value = Math.round(musicAlpha(data) * 100);
+        opacityInput.setAttribute('aria-label', 'Transparency');
+        opacityInput.addEventListener('input', (event) => {
+          event.stopPropagation();
+          const nextData = { ...widgetData(widget), playerAlpha: Number(opacityInput.value) / 100 };
+          scheduleWidgetSave(widget, { data: nextData }, 120);
+          applyMusicVisuals(element, nextData);
+        });
+        opacityControl.appendChild(opacityInput);
+        menu.appendChild(opacityControl);
+      }
     }
 
     const remove = document.createElement('button');
@@ -413,6 +546,50 @@ function startMove(event, widget, element) {
   window.addEventListener('pointercancel', stopMove, { once: true });
 }
 
+function queueWidgetMove(event, widget, element) {
+  if (event.button !== 0) return;
+
+  state.moveCandidate = {
+    widget,
+    element,
+    start: boardPoint(event),
+    originalX: widget.x,
+    originalY: widget.y,
+    active: false
+  };
+
+  window.addEventListener('pointermove', promoteWidgetMove);
+  window.addEventListener('pointerup', stopQueuedMove, { once: true });
+  window.addEventListener('pointercancel', stopQueuedMove, { once: true });
+}
+
+function promoteWidgetMove(event) {
+  if (!state.moveCandidate) return;
+
+  const point = boardPoint(event);
+  const dx = point.x - state.moveCandidate.start.x;
+  const dy = point.y - state.moveCandidate.start.y;
+  if (!state.moveCandidate.active && Math.hypot(dx, dy) < 4) return;
+
+  event.preventDefault();
+  state.moveCandidate.active = true;
+  state.moving = state.moveCandidate;
+  moveWidget(event);
+}
+
+function stopQueuedMove() {
+  window.removeEventListener('pointermove', promoteWidgetMove);
+  if (state.moveCandidate?.active) {
+    scheduleWidgetSave(
+      state.moveCandidate.widget,
+      { x: state.moveCandidate.widget.x, y: state.moveCandidate.widget.y },
+      80
+    );
+  }
+  state.moving = null;
+  state.moveCandidate = null;
+}
+
 function moveWidget(event) {
   if (!state.moving) return;
   const point = boardPoint(event);
@@ -445,7 +622,7 @@ function startResize(event, widget, element) {
     originalWidth: widget.width,
     originalHeight: widget.height,
     aspectRatio: widget.width / widget.height,
-    keepRatio: widget.type === 'music'
+    keepRatio: ['music', 'sticker', 'gif'].includes(widget.type)
   };
 
   event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -459,8 +636,8 @@ function resizeWidget(event) {
   event.preventDefault();
 
   const { widget, element, startX, startY, originalWidth, originalHeight, aspectRatio, keepRatio } = state.resizing;
-  const minWidth = widget.type === 'music' ? 180 : 48;
-  const minHeight = widget.type === 'music' ? 84 : 48;
+  const minWidth = ['music', 'sticker', 'gif'].includes(widget.type) ? 84 : 48;
+  const minHeight = widget.type === 'music' ? 84 : ['sticker', 'gif'].includes(widget.type) ? 72 : 48;
   let width = Math.max(minWidth, originalWidth + event.clientX - startX);
   let height = Math.max(minHeight, originalHeight + event.clientY - startY);
 
@@ -478,14 +655,57 @@ function resizeWidget(event) {
   element.style.height = `${widget.height}px`;
 }
 
+function syncCanvasBackingStore(widget, element) {
+  if (widget.type !== 'canvas') return widgetData(widget);
+
+  const canvas = $('canvas', element);
+  if (!canvas) return widgetData(widget);
+
+  const dpr = window.devicePixelRatio || 1;
+  const nextWidth = Math.max(1, Math.floor(widget.width * dpr));
+  const nextHeight = Math.max(1, Math.floor(widget.height * dpr));
+
+  if (canvas.width === nextWidth && canvas.height === nextHeight) {
+    return widgetData(widget);
+  }
+
+  const snapshot = document.createElement('canvas');
+  snapshot.width = canvas.width;
+  snapshot.height = canvas.height;
+  const snapshotContext = snapshot.getContext('2d');
+  snapshotContext.drawImage(canvas, 0, 0);
+
+  canvas.width = nextWidth;
+  canvas.height = nextHeight;
+
+  const context = canvas.getContext('2d');
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.fillStyle = canvasBackgroundColor(widget);
+  context.fillRect(0, 0, widget.width, widget.height);
+  context.drawImage(
+    snapshot,
+    0,
+    0,
+    snapshot.width,
+    snapshot.height,
+    0,
+    0,
+    widget.width,
+    widget.height
+  );
+
+  return { ...widgetData(widget), image: canvas.toDataURL('image/png') };
+}
+
 function stopResize() {
   if (!state.resizing) return;
   window.removeEventListener('pointermove', resizeWidget);
-  scheduleWidgetSave(
-    state.resizing.widget,
-    { width: state.resizing.widget.width, height: state.resizing.widget.height },
-    80
-  );
+  const { widget, element } = state.resizing;
+  const patch = { width: widget.width, height: widget.height };
+  if (widget.type === 'canvas') {
+    patch.data = syncCanvasBackingStore(widget, element);
+  }
+  scheduleWidgetSave(widget, patch, 80);
   state.resizing = null;
 }
 
@@ -518,10 +738,167 @@ function renderCanvasWidget(widget) {
 
 function brushWidth() {
   const base = Number(state.brush.size) || 8;
-  if (state.brush.utensil === 'pencil') return Math.max(1, base * 0.38);
+  if (state.brush.utensil === 'fill') return base;
   if (state.brush.utensil === 'pen') return Math.max(2, base * 0.58);
   if (state.brush.utensil === 'eraser') return Math.max(8, base * 1.35);
   return base;
+}
+
+function canvasBackgroundColor(widget) {
+  return widgetData(widget).background || 'rgba(255,255,255,0.84)';
+}
+
+function brushRgba() {
+  const { r, g, b } = parseHexColor(state.brush.color);
+  return [r, g, b, 255];
+}
+
+function colorsMatch(data, index, target, tolerance = 22) {
+  return (
+    Math.abs(data[index] - target[0]) <= tolerance &&
+    Math.abs(data[index + 1] - target[1]) <= tolerance &&
+    Math.abs(data[index + 2] - target[2]) <= tolerance &&
+    Math.abs(data[index + 3] - target[3]) <= tolerance
+  );
+}
+
+function floodFill(canvas, context, point) {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor(point.x * (canvas.width / rect.width));
+  const y = Math.floor(point.y * (canvas.height / rect.height));
+  if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return false;
+
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const { data, width, height } = image;
+  const startIndex = (y * width + x) * 4;
+  const target = [
+    data[startIndex],
+    data[startIndex + 1],
+    data[startIndex + 2],
+    data[startIndex + 3]
+  ];
+  const fill = brushRgba();
+  if (colorsMatch(fill, 0, target, 2)) return false;
+
+  const stack = [[x, y]];
+  const visited = new Uint8Array(width * height);
+
+  while (stack.length) {
+    const [currentX, currentY] = stack.pop();
+    if (currentX < 0 || currentY < 0 || currentX >= width || currentY >= height) continue;
+
+    const pixel = currentY * width + currentX;
+    if (visited[pixel]) continue;
+    visited[pixel] = 1;
+
+    const index = pixel * 4;
+    if (!colorsMatch(data, index, target)) continue;
+
+    data[index] = fill[0];
+    data[index + 1] = fill[1];
+    data[index + 2] = fill[2];
+    data[index + 3] = fill[3];
+
+    stack.push([currentX + 1, currentY]);
+    stack.push([currentX - 1, currentY]);
+    stack.push([currentX, currentY + 1]);
+    stack.push([currentX, currentY - 1]);
+  }
+
+  context.putImageData(image, 0, 0);
+  return true;
+}
+
+function drawSoftBrush(context, from, to, width) {
+  context.save();
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  context.lineWidth = width;
+  context.globalAlpha = 0.56;
+  context.strokeStyle = state.brush.color;
+  context.shadowColor = state.brush.color;
+  context.shadowBlur = Math.max(2, width * 0.35);
+  context.beginPath();
+  context.moveTo(from.x, from.y);
+  context.lineTo(to.x, to.y);
+  context.stroke();
+  context.restore();
+
+  const distance = Math.hypot(to.x - from.x, to.y - from.y);
+  const steps = Math.max(1, Math.ceil(distance / Math.max(2, width * 0.4)));
+  context.save();
+  context.fillStyle = state.brush.color;
+  context.globalAlpha = 0.2;
+  for (let index = 0; index <= steps; index += 1) {
+    const ratio = index / steps;
+    const jitter = Math.sin((from.x + from.y + index * 17) * 0.7) * width * 0.18;
+    const x = from.x + (to.x - from.x) * ratio + jitter;
+    const y = from.y + (to.y - from.y) * ratio - jitter * 0.55;
+    context.beginPath();
+    context.arc(x, y, Math.max(1.2, width * (0.16 + (index % 3) * 0.035)), 0, Math.PI * 2);
+    context.fill();
+  }
+  context.restore();
+}
+
+function strokeToolPath(context, from, to, width) {
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  context.lineWidth = width;
+  context.beginPath();
+  if (from.x === to.x && from.y === to.y) {
+    context.arc(from.x, from.y, Math.max(1, width / 2), 0, Math.PI * 2);
+    return 'fill';
+  }
+
+  context.moveTo(from.x, from.y);
+  context.lineTo(to.x, to.y);
+  return 'stroke';
+}
+
+function eraseToolSegment(context, widget, from, to, width) {
+  context.save();
+  const drawMode = strokeToolPath(context, from, to, width);
+  context.globalCompositeOperation = 'destination-out';
+  context.fillStyle = '#000';
+  context.strokeStyle = '#000';
+  if (drawMode === 'fill') {
+    context.fill();
+  } else {
+    context.stroke();
+  }
+  context.restore();
+
+  context.save();
+  context.globalCompositeOperation = 'destination-over';
+  context.fillStyle = canvasBackgroundColor(widget);
+  context.fillRect(0, 0, widget.width, widget.height);
+  context.restore();
+}
+
+function drawToolSegment(context, widget, from, to) {
+  const width = brushWidth();
+  if (state.brush.utensil === 'brush') {
+    drawSoftBrush(context, from, to, width);
+    return;
+  }
+  if (state.brush.utensil === 'eraser') {
+    eraseToolSegment(context, widget, from, to, width);
+    return;
+  }
+
+  context.save();
+  const drawMode = strokeToolPath(context, from, to, width);
+  context.globalCompositeOperation = 'source-over';
+  context.globalAlpha = state.brush.utensil === 'pen' ? 0.96 : 1;
+  context.strokeStyle = state.brush.color;
+  context.fillStyle = context.strokeStyle;
+  if (drawMode === 'fill') {
+    context.fill();
+  } else {
+    context.stroke();
+  }
+  context.restore();
 }
 
 function wireDrawing(canvas, context, widget) {
@@ -540,25 +917,29 @@ function wireDrawing(canvas, context, widget) {
     if (!drawing || state.selectedTool !== 'brush') return;
     event.preventDefault();
     const point = pointFor(event);
-    context.save();
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    context.lineWidth = brushWidth();
-    context.globalCompositeOperation = state.brush.utensil === 'eraser' ? 'destination-out' : 'source-over';
-    context.strokeStyle = state.brush.color;
-    context.beginPath();
-    context.moveTo(last.x, last.y);
-    context.lineTo(point.x, point.y);
-    context.stroke();
-    context.restore();
+    drawToolSegment(context, widget, last, point);
     last = point;
   };
 
   canvas.addEventListener('pointerdown', (event) => {
     if (state.selectedTool !== 'brush') return;
     event.preventDefault();
+    event.stopPropagation();
+    const point = pointFor(event);
+
+    if (state.brush.utensil === 'fill') {
+      if (floodFill(canvas, context, point)) {
+        const nextData = { ...widgetData(widget), image: canvas.toDataURL('image/png') };
+        scheduleWidgetSave(widget, { data: nextData }, 80);
+      }
+      return;
+    }
+
     drawing = true;
-    last = pointFor(event);
+    last = point;
+    if (state.brush.utensil !== 'eraser') {
+      drawToolSegment(context, widget, last, last);
+    }
     canvas.setPointerCapture(event.pointerId);
   });
 
@@ -590,13 +971,102 @@ function renderWordboxWidget(widget) {
   return element;
 }
 
+function renderAssetWidget(widget) {
+  const data = widgetData(widget);
+  const element = widgetShell(widget);
+  const asset = document.createElement('figure');
+  asset.className = `media-widget ${widget.type}-widget`;
+
+  const image = document.createElement('img');
+  image.alt = data.title || widget.type;
+  image.src = data.url || '';
+  image.draggable = false;
+  image.title = data.title || widget.type;
+  asset.appendChild(image);
+
+  element.appendChild(asset);
+  return element;
+}
+
+function iconButton(className, label, icon) {
+  const button = document.createElement('button');
+  button.className = className;
+  button.type = 'button';
+  button.setAttribute('aria-label', label);
+  button.innerHTML = `<i data-lucide="${icon}"></i>`;
+  return button;
+}
+
+function setPlayButtons(music, playing) {
+  $$('.music-preview-button', music).forEach((button) => {
+    button.classList.toggle('playing', playing);
+    button.setAttribute('aria-label', playing ? 'Pause preview' : 'Play preview');
+    button.innerHTML = `<i data-lucide="${playing ? 'pause' : 'play'}"></i>`;
+  });
+  refreshIcons();
+}
+
+function musicDuration(audio) {
+  return Number.isFinite(audio.duration) ? audio.duration : 0;
+}
+
+function createMusicProgress(audio, className = '') {
+  const progress = document.createElement('div');
+  progress.className = `music-progress ${className}`.trim();
+
+  const current = document.createElement('span');
+  current.className = 'music-progress-time';
+  current.textContent = '0:00';
+
+  const track = document.createElement('button');
+  track.className = 'music-progress-track';
+  track.type = 'button';
+  track.setAttribute('aria-label', 'Seek preview');
+
+  const fill = document.createElement('span');
+  fill.className = 'music-progress-fill';
+  track.appendChild(fill);
+
+  const remaining = document.createElement('span');
+  remaining.className = 'music-progress-time';
+  remaining.textContent = '-0:00';
+
+  const update = () => {
+    const duration = musicDuration(audio);
+    const currentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    const percent = duration ? clamp(currentTime / duration, 0, 1) * 100 : 0;
+    fill.style.width = `${percent}%`;
+    current.textContent = formatTime(currentTime);
+    remaining.textContent = duration ? `-${formatTime(Math.max(duration - currentTime, 0))}` : '-0:00';
+  };
+
+  track.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const duration = musicDuration(audio);
+    if (!duration) return;
+    const rect = track.getBoundingClientRect();
+    audio.currentTime = clamp((event.clientX - rect.left) / rect.width, 0, 1) * duration;
+    update();
+  });
+
+  ['loadedmetadata', 'durationchange', 'timeupdate', 'play', 'pause', 'ended'].forEach((eventName) => {
+    audio.addEventListener(eventName, update);
+  });
+  window.setTimeout(update, 0);
+
+  progress.appendChild(current);
+  progress.appendChild(track);
+  progress.appendChild(remaining);
+  return progress;
+}
+
 function renderMusicWidget(widget) {
   const data = widgetData(widget);
   const element = widgetShell(widget);
   const music = document.createElement('div');
   const presentation = data.presentation === 'player' ? 'player' : 'cover';
   music.className = `music-widget ${presentation}`;
-  music.style.setProperty('--player-color', data.playerColor || '#1b1b1d');
+  setMusicVisualVars(music, data);
 
   const audio = document.createElement('audio');
   audio.className = 'music-audio';
@@ -625,75 +1095,87 @@ function renderMusicWidget(widget) {
   };
 
   if (presentation === 'player') {
-    const screen = document.createElement('div');
-    screen.className = 'music-screen';
-    screen.appendChild(makeImage());
+    const top = document.createElement('div');
+    top.className = 'player-top';
 
-    const controls = document.createElement('div');
-    controls.className = 'music-controls';
-    controls.innerHTML = `
-      <div class="wheel-label">MUSIC</div>
-      <button class="wheel-button wheel-prev" type="button" aria-label="Previous"><i data-lucide="skip-back"></i></button>
-      <button class="wheel-button wheel-next" type="button" aria-label="Next"><i data-lucide="skip-forward"></i></button>
-      <button class="wheel-button wheel-play music-preview-button" type="button" aria-label="Play preview"><i data-lucide="play"></i></button>
-      <span class="wheel-center" aria-hidden="true"></span>
-    `;
+    const art = makeImage();
+    art.className = 'player-art';
 
     const meta = document.createElement('div');
     meta.className = 'music-meta player-meta';
     meta.appendChild(makeTitle());
     meta.appendChild(makeArtist());
 
-    music.appendChild(screen);
+    const signal = document.createElement('span');
+    signal.className = 'player-signal';
+    signal.innerHTML = '<i data-lucide="audio-lines"></i>';
+
+    top.appendChild(art);
+    top.appendChild(meta);
+    top.appendChild(signal);
+
+    const controls = document.createElement('div');
+    controls.className = 'player-control-row';
+    const back = iconButton('player-control music-skip-button', 'Back 10 seconds', 'rewind');
+    back.dataset.skip = '-10';
+    const play = iconButton('player-control player-play music-preview-button', 'Play preview', 'play');
+    const forward = iconButton('player-control music-skip-button', 'Forward 10 seconds', 'fast-forward');
+    forward.dataset.skip = '10';
+    const cast = iconButton('player-control player-cast', 'Cast', 'cast');
+    controls.appendChild(back);
+    controls.appendChild(play);
+    controls.appendChild(forward);
+    controls.appendChild(cast);
+
+    music.appendChild(top);
+    music.appendChild(createMusicProgress(audio, 'player-progress'));
     music.appendChild(controls);
-    music.appendChild(meta);
   } else {
     const frame = document.createElement('div');
     frame.className = 'cover-art-frame';
     frame.appendChild(makeImage());
 
     const meta = document.createElement('div');
-    meta.className = 'music-meta';
+    meta.className = 'music-meta cover-meta';
     meta.appendChild(makeTitle());
     meta.appendChild(makeArtist());
-    const play = document.createElement('button');
-    play.className = 'music-inline-play music-preview-button';
-    play.type = 'button';
-    play.setAttribute('aria-label', 'Play preview');
-    play.innerHTML = '<i data-lucide="play"></i>';
-    meta.appendChild(play);
+    meta.appendChild(iconButton('music-inline-play music-preview-button', 'Play preview', 'play'));
 
     music.appendChild(frame);
     music.appendChild(meta);
+    music.appendChild(createMusicProgress(audio, 'cover-progress'));
   }
 
   music.appendChild(audio);
+
   $$('.music-preview-button', music).forEach((button) => {
     button.addEventListener('click', async (event) => {
       event.stopPropagation();
       if (audio.paused) {
         try {
           await audio.play();
-          button.classList.add('playing');
-          button.innerHTML = '<i data-lucide="pause"></i>';
         } catch {
           showToast('Preview is not available for this song.');
         }
       } else {
         audio.pause();
-        button.classList.remove('playing');
-        button.innerHTML = '<i data-lucide="play"></i>';
       }
-      refreshIcons();
     });
   });
-  audio.addEventListener('ended', () => {
-    $$('.music-preview-button', music).forEach((button) => {
-      button.classList.remove('playing');
-      button.innerHTML = '<i data-lucide="play"></i>';
+
+  $$('.music-skip-button', music).forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const duration = musicDuration(audio);
+      const currentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      const nextTime = currentTime + Number(button.dataset.skip || 0);
+      audio.currentTime = clamp(nextTime, 0, duration || currentTime);
     });
-    refreshIcons();
   });
+
+  audio.addEventListener('play', () => setPlayButtons(music, true));
+  audio.addEventListener('pause', () => setPlayButtons(music, false));
+  audio.addEventListener('ended', () => setPlayButtons(music, false));
 
   element.appendChild(music);
   return element;
@@ -708,6 +1190,7 @@ function renderBoard() {
     if (widget.type === 'canvas') element = renderCanvasWidget(widget);
     if (widget.type === 'wordbox') element = renderWordboxWidget(widget);
     if (widget.type === 'music') element = renderMusicWidget(widget);
+    if (widget.type === 'sticker' || widget.type === 'gif') element = renderAssetWidget(widget);
     if (element) board.appendChild(element);
   });
 
@@ -758,6 +1241,75 @@ async function checkSession() {
   } catch {
     setView('auth');
   }
+}
+
+function assetLabel(type = state.pendingAssetType) {
+  return 'Sticker';
+}
+
+async function loadAssetResults(term = '') {
+  const type = 'sticker';
+  assetResults.innerHTML = '<div class="asset-loading">Loading...</div>';
+
+  try {
+    const { results } = await api(`/api/assets/search?type=${encodeURIComponent(type)}&q=${encodeURIComponent(term)}`);
+    assetResults.innerHTML = '';
+    if (!results.length) {
+      assetResults.textContent = `No ${assetLabel(type).toLowerCase()} results`;
+      return;
+    }
+
+    results.forEach((asset) => {
+      const button = document.createElement('button');
+      button.className = 'asset-result';
+      button.type = 'button';
+      button.innerHTML = `
+        <img alt="">
+        <span>
+          <strong></strong>
+          <small></small>
+        </span>
+      `;
+      $('img', button).src = asset.previewUrl || asset.url;
+      $('strong', button).textContent = asset.title || assetLabel(type);
+      $('small', button).textContent = asset.source || 'Recommended';
+      button.addEventListener('click', () => createAssetWidget(asset).catch((error) => showToast(error.message)));
+      assetResults.appendChild(button);
+    });
+  } catch (error) {
+    assetResults.textContent = '';
+    showToast(error.message);
+  }
+}
+
+function openAssetDialog(type) {
+  state.pendingAssetType = 'sticker';
+  assetDialogTitle.textContent = assetLabel();
+  assetSearchInput.value = '';
+  assetSearchInput.placeholder = 'Search stickers';
+  assetDialog.showModal();
+  loadAssetResults('').catch((error) => showToast(error.message));
+}
+
+async function createAssetWidget(asset) {
+  const type = 'sticker';
+  const width = asset.assetType === 'gif' ? 230 : 180;
+  const height = asset.assetType === 'gif' ? 180 : 180;
+  const rect = {
+    x: Math.round(Math.max(120, board.clientWidth / 2 - width / 2)),
+    y: Math.round(Math.max(100, board.clientHeight / 2 - height / 2)),
+    width,
+    height
+  };
+
+  await createWidget(type, rect, {
+    title: asset.title || assetLabel(type),
+    url: asset.url,
+    previewUrl: asset.previewUrl || asset.url,
+    source: asset.source || 'Recommended'
+  });
+  assetDialog.close();
+  assetResults.innerHTML = '';
 }
 
 loginForm.addEventListener('submit', async (event) => {
@@ -821,6 +1373,13 @@ $$('.tool-button').forEach((button) => {
       if (canEdit()) {
         setMusicPresentation(state.pendingPresentation || 'cover');
         musicDialog.showModal();
+      }
+      return;
+    }
+    if (button.dataset.tool === 'sticker') {
+      selectTool(null);
+      if (canEdit()) {
+        openAssetDialog();
       }
       return;
     }
@@ -951,6 +1510,11 @@ musicSearchForm.addEventListener('submit', async (event) => {
   }
 });
 
+assetSearchForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  await loadAssetResults(assetSearchInput.value.trim());
+});
+
 $$('[data-presentation]').forEach((button) => {
   button.addEventListener('click', () => {
     setMusicPresentation(button.dataset.presentation);
@@ -972,7 +1536,12 @@ applyMusicButton.addEventListener('click', async () => {
   };
 
   try {
-    await createWidget('music', rect, { ...state.pendingMusic, presentation, playerColor: '#1b1b1d' });
+    await createWidget('music', rect, {
+      ...state.pendingMusic,
+      presentation,
+      playerColor: '#f6e8f1',
+      playerAlpha: 0.9
+    });
     musicDialog.close();
     musicResults.innerHTML = '';
     musicSearchInput.value = '';

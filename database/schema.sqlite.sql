@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS exhibits (
 CREATE TABLE IF NOT EXISTS widgets (
   id TEXT PRIMARY KEY,
   exhibit_id TEXT NOT NULL REFERENCES exhibits(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('canvas', 'wordbox', 'music')),
+  type TEXT NOT NULL CHECK (type IN ('canvas', 'wordbox', 'music', 'sticker', 'gif')),
   x REAL NOT NULL DEFAULT 120,
   y REAL NOT NULL DEFAULT 120,
   width REAL NOT NULL DEFAULT 260,
