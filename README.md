@@ -2,10 +2,6 @@
 
 Cara Mia is a shared art-exhibit website for long-distance collaboration. It has login/signup, draggable exhibit widgets, drawing canvases, word boxes, music search, and email-based sharing with viewer or collaborator permissions.
 
-## Test Account
-
-- ID: `babaganoosh`
-- Password: `staygoldenponyboy`
 
 ## Local Run
 
