@@ -843,6 +843,13 @@ select:focus {
   width: 142px;
 }
 
+.delete-widget-menu {
+  width: auto;
+  min-width: 30px;
+  padding: 4px;
+  flex-wrap: nowrap;
+}
+
 .mini-swatch,
 .mini-button,
 .move-handle,
@@ -1243,6 +1250,12 @@ select:focus {
     right: auto;
     left: 0;
     width: min(180px, calc(100vw - 20px));
+  }
+
+  .external-controls .delete-widget-menu,
+  .external-controls.controls-left .delete-widget-menu {
+    width: auto;
+    min-width: 30px;
   }
 
   .external-controls .move-handle,

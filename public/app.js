@@ -88,6 +88,8 @@ const state = {
   pendingMusic: null,
   pendingPresentation: 'cover',
   pendingAssetType: 'sticker',
+  drawingFrame: null,
+  pendingDrawPoint: null,
   saveTimers: new Map(),
   controlTimers: new WeakMap()
 };
@@ -307,6 +309,16 @@ function hideWidgetControls(element) {
   element.classList.remove('controls-open');
 }
 
+function clearWidgetSelection() {
+  $$('.art-widget').forEach((element) => {
+    element.classList.remove('selected', 'controls-open');
+    if (state.controlTimers.has(element)) {
+      window.clearTimeout(state.controlTimers.get(element));
+      state.controlTimers.delete(element);
+    }
+  });
+}
+
 function isPassiveWidgetTarget(event, widget) {
   const target = event.target;
   if (target.closest('.widget-menu, .move-handle, .resize-handle, button, input, select, textarea, audio')) {
@@ -402,6 +414,8 @@ function scheduleWidgetSave(widget, patch = {}, delay = 450) {
         Object.assign(widget, saved);
       } catch (error) {
         showToast(error.message);
+      } finally {
+        state.saveTimers.delete(widget.id);
       }
     }, delay)
   );
@@ -455,7 +469,9 @@ function widgetShell(widget) {
     element.appendChild(handle);
 
     const menu = document.createElement('div');
-    menu.className = `widget-menu ${widget.type === 'music' ? 'music-widget-menu' : 'color-widget-menu'}`;
+    const deleteOnly = !(widget.type === 'canvas' || widget.type === 'wordbox' || widget.type === 'music');
+    const menuType = widget.type === 'music' ? 'music-widget-menu' : 'color-widget-menu';
+    menu.className = `widget-menu ${deleteOnly ? 'delete-widget-menu' : menuType}`;
 
     if (widget.type === 'canvas' || widget.type === 'wordbox' || widget.type === 'music') {
       const palette = widget.type === 'music' ? musicPlayerColors : widgetColors;
@@ -916,9 +932,32 @@ function wireDrawing(canvas, context, widget) {
   const drawTo = (event) => {
     if (!drawing || state.selectedTool !== 'brush') return;
     event.preventDefault();
-    const point = pointFor(event);
-    drawToolSegment(context, widget, last, point);
-    last = point;
+    state.pendingDrawPoint = pointFor(event);
+    if (state.drawingFrame) return;
+
+    state.drawingFrame = window.requestAnimationFrame(() => {
+      state.drawingFrame = null;
+      if (!drawing || !state.pendingDrawPoint) return;
+      drawToolSegment(context, widget, last, state.pendingDrawPoint);
+      last = state.pendingDrawPoint;
+      state.pendingDrawPoint = null;
+    });
+  };
+
+  const finishDrawing = () => {
+    if (!drawing) return;
+    if (state.drawingFrame) {
+      window.cancelAnimationFrame(state.drawingFrame);
+      state.drawingFrame = null;
+    }
+    if (state.pendingDrawPoint) {
+      drawToolSegment(context, widget, last, state.pendingDrawPoint);
+      last = state.pendingDrawPoint;
+      state.pendingDrawPoint = null;
+    }
+    drawing = false;
+    const nextData = { ...widgetData(widget), image: canvas.toDataURL('image/png') };
+    scheduleWidgetSave(widget, { data: nextData }, 80);
   };
 
   canvas.addEventListener('pointerdown', (event) => {
@@ -937,6 +976,7 @@ function wireDrawing(canvas, context, widget) {
 
     drawing = true;
     last = point;
+    state.pendingDrawPoint = null;
     if (state.brush.utensil !== 'eraser') {
       drawToolSegment(context, widget, last, last);
     }
@@ -944,13 +984,13 @@ function wireDrawing(canvas, context, widget) {
   });
 
   canvas.addEventListener('pointermove', drawTo);
-  canvas.addEventListener('pointerup', () => {
-    if (!drawing) return;
-    drawing = false;
-    const nextData = { ...widgetData(widget), image: canvas.toDataURL('image/png') };
-    scheduleWidgetSave(widget, { data: nextData }, 80);
-  });
+  canvas.addEventListener('pointerup', finishDrawing);
   canvas.addEventListener('pointercancel', () => {
+    if (state.drawingFrame) {
+      window.cancelAnimationFrame(state.drawingFrame);
+      state.drawingFrame = null;
+    }
+    state.pendingDrawPoint = null;
     drawing = false;
   });
 }
@@ -1414,6 +1454,9 @@ brushSize.addEventListener('input', () => {
 
 board.addEventListener('pointerdown', (event) => {
   if (!canEdit()) return;
+  if (!event.target.closest('.art-widget')) {
+    clearWidgetSelection();
+  }
   if (!['canvas', 'wordbox'].includes(state.selectedTool)) return;
   if (event.target !== board) return;
 

@@ -10,7 +10,8 @@ const {
   isPostgres,
   normalizeWidget,
   publicUser,
-  query
+  query,
+  scheduleDatabaseExport
 } = require('./db');
 const {
   clearSessionCookie,
@@ -399,6 +400,7 @@ app.post('/api/signup', async (req, res, next) => {
       [userId, email, accountId, await hashPassword(password), isPostgres ? true : 1]
     );
     await ensureDefaultExhibit(userId);
+    scheduleDatabaseExport();
 
     res.status(201).json({ ok: true });
   } catch (error) {
@@ -417,6 +419,7 @@ app.post('/api/login', async (req, res, next) => {
     }
 
     await ensureDefaultExhibit(user.id);
+    scheduleDatabaseExport();
     setSessionCookie(res, user.id);
     res.json({ user: publicUser(user) });
   } catch (error) {
@@ -503,6 +506,7 @@ app.post('/api/widgets', requireAuth, async (req, res, next) => {
 
     const saved = await get('SELECT * FROM widgets WHERE id = ?', [widget.id]);
     await query('UPDATE exhibits SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [exhibitId]);
+    scheduleDatabaseExport();
     res.status(201).json({ widget: normalizeWidget(saved) });
   } catch (error) {
     next(error);
@@ -540,6 +544,7 @@ app.patch('/api/widgets/:id', requireAuth, async (req, res, next) => {
     await query('UPDATE exhibits SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [existing.exhibit_id]);
 
     const saved = await get('SELECT * FROM widgets WHERE id = ?', [req.params.id]);
+    scheduleDatabaseExport();
     res.json({ widget: normalizeWidget(saved) });
   } catch (error) {
     next(error);
@@ -560,6 +565,7 @@ app.delete('/api/widgets/:id', requireAuth, async (req, res, next) => {
 
     await query('DELETE FROM widgets WHERE id = ?', [req.params.id]);
     await query('UPDATE exhibits SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [existing.exhibit_id]);
+    scheduleDatabaseExport();
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -599,6 +605,7 @@ app.post('/api/share', requireAuth, async (req, res, next) => {
       [randomUUID(), exhibitId, target.id, role, req.user.id]
     );
 
+    scheduleDatabaseExport();
     res.json({ ok: true, sharedWith: publicUser(target), role });
   } catch (error) {
     next(error);

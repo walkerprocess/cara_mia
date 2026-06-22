@@ -1,15 +1,23 @@
 const fs = require('fs');
+const fsp = require('fs/promises');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const bcrypt = require('bcryptjs');
+const ExcelJS = require('exceljs');
 const { Pool } = require('pg');
 const BetterSqlite3 = require('better-sqlite3');
 
 const rootDir = path.resolve(__dirname, '..');
 const databaseDir = path.join(rootDir, 'database');
 const isPostgres = Boolean(process.env.DATABASE_URL);
+const exportDir = path.join(databaseDir, 'exports');
+const exportSnapshots =
+  process.env.DB_EXPORTS === 'true' || (!isPostgres && process.env.DB_EXPORTS !== 'false');
 
 let client;
+let exportTimer = null;
+let exportRunning = false;
+let exportQueued = false;
 const widgetTypeCheck = "type IN ('canvas', 'wordbox', 'music', 'sticker', 'gif')";
 
 function readSchema(fileName) {
@@ -117,6 +125,97 @@ async function seedTestAccount() {
   await ensureDefaultExhibit(id);
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function normalizeExportValue(value) {
+  if (value === null || value === undefined) return '';
+  return typeof value === 'object' ? JSON.stringify(value) : value;
+}
+
+function orderedTableQuery(table) {
+  if (table === 'users') return 'SELECT id, email, account_id, password_hash, email_verified, created_at FROM users ORDER BY created_at ASC';
+  if (table === 'exhibits') return 'SELECT id, owner_user_id, title, created_at, updated_at FROM exhibits ORDER BY created_at ASC';
+  if (table === 'widgets') return 'SELECT id, exhibit_id, type, x, y, width, height, z_index, data, created_by, created_at, updated_at FROM widgets ORDER BY exhibit_id ASC, z_index ASC, created_at ASC';
+  return 'SELECT id, exhibit_id, target_user_id, role, created_by, created_at FROM shares ORDER BY created_at ASC';
+}
+
+async function writeCsv(table, rows) {
+  const columns = rows[0] ? Object.keys(rows[0]) : [];
+  const lines = [
+    columns.join(','),
+    ...rows.map((row) => columns.map((column) => csvCell(normalizeExportValue(row[column]))).join(','))
+  ];
+  await fsp.writeFile(path.join(exportDir, `${table}.csv`), `${lines.join('\n')}\n`, 'utf8');
+}
+
+async function writeExcel(tables) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Cara Mia';
+  workbook.created = new Date();
+  workbook.modified = new Date();
+
+  Object.entries(tables).forEach(([table, rows]) => {
+    const worksheet = workbook.addWorksheet(table);
+    const columns = rows[0] ? Object.keys(rows[0]) : [];
+    worksheet.columns = columns.map((column) => ({
+      header: column,
+      key: column,
+      width: Math.min(Math.max(column.length + 2, 14), 42)
+    }));
+    rows.forEach((row) => {
+      worksheet.addRow(
+        Object.fromEntries(columns.map((column) => [column, normalizeExportValue(row[column])]))
+      );
+    });
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+  });
+
+  await workbook.xlsx.writeFile(path.join(exportDir, 'cara-mia-database.xlsx'));
+}
+
+async function exportDatabaseSnapshot() {
+  if (!exportSnapshots) return;
+  await fsp.mkdir(exportDir, { recursive: true });
+
+  const tableNames = ['users', 'exhibits', 'widgets', 'shares'];
+  const tables = {};
+  for (const table of tableNames) {
+    tables[table] = await all(orderedTableQuery(table));
+    await writeCsv(table, tables[table]);
+  }
+  await writeExcel(tables);
+}
+
+function scheduleDatabaseExport(delay = 1500) {
+  if (!exportSnapshots) return;
+  if (exportRunning) {
+    exportQueued = true;
+    return;
+  }
+
+  clearTimeout(exportTimer);
+  exportTimer = setTimeout(async () => {
+    exportTimer = null;
+    exportRunning = true;
+    try {
+      await exportDatabaseSnapshot();
+    } catch (error) {
+      console.error('Database export failed:', error);
+    } finally {
+      exportRunning = false;
+      if (exportQueued) {
+        exportQueued = false;
+        scheduleDatabaseExport(delay);
+      }
+    }
+  }, delay);
+}
+
 async function migratePostgresWidgetTypes() {
   await client.query('ALTER TABLE widgets DROP CONSTRAINT IF EXISTS widgets_type_check');
   await client.query(`ALTER TABLE widgets ADD CONSTRAINT widgets_type_check CHECK (${widgetTypeCheck})`);
@@ -181,6 +280,7 @@ async function initDb() {
   }
 
   await seedTestAccount();
+  scheduleDatabaseExport(250);
 }
 
 module.exports = {
@@ -191,5 +291,6 @@ module.exports = {
   normalizeWidget,
   publicUser,
   query,
+  scheduleDatabaseExport,
   ensureDefaultExhibit
 };

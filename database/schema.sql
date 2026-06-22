@@ -41,4 +41,7 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 
 CREATE INDEX IF NOT EXISTS idx_widgets_exhibit ON widgets(exhibit_id);
+CREATE INDEX IF NOT EXISTS idx_widgets_created_by ON widgets(created_by);
+CREATE INDEX IF NOT EXISTS idx_exhibits_owner ON exhibits(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_shares_target ON shares(target_user_id);
+CREATE INDEX IF NOT EXISTS idx_shares_exhibit ON shares(exhibit_id);
