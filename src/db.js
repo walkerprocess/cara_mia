@@ -19,6 +19,12 @@ let exportTimer = null;
 let exportRunning = false;
 let exportQueued = false;
 const widgetTypeCheck = "type IN ('canvas', 'wordbox', 'music', 'sticker', 'gif')";
+const exportColumns = {
+  users: ['id', 'email', 'account_id', 'password_hash', 'email_verified', 'created_at'],
+  exhibits: ['id', 'owner_user_id', 'title', 'created_at', 'updated_at'],
+  widgets: ['id', 'exhibit_id', 'type', 'x', 'y', 'width', 'height', 'z_index', 'data', 'created_by', 'created_at', 'updated_at'],
+  shares: ['id', 'exhibit_id', 'target_user_id', 'role', 'created_by', 'created_at']
+};
 
 function readSchema(fileName) {
   return fs.readFileSync(path.join(databaseDir, fileName), 'utf8');
@@ -144,7 +150,7 @@ function orderedTableQuery(table) {
 }
 
 async function writeCsv(table, rows) {
-  const columns = rows[0] ? Object.keys(rows[0]) : [];
+  const columns = exportColumns[table] || (rows[0] ? Object.keys(rows[0]) : []);
   const lines = [
     columns.join(','),
     ...rows.map((row) => columns.map((column) => csvCell(normalizeExportValue(row[column]))).join(','))
@@ -160,7 +166,7 @@ async function writeExcel(tables) {
 
   Object.entries(tables).forEach(([table, rows]) => {
     const worksheet = workbook.addWorksheet(table);
-    const columns = rows[0] ? Object.keys(rows[0]) : [];
+    const columns = exportColumns[table] || (rows[0] ? Object.keys(rows[0]) : []);
     worksheet.columns = columns.map((column) => ({
       header: column,
       key: column,
@@ -175,7 +181,29 @@ async function writeExcel(tables) {
     worksheet.views = [{ state: 'frozen', ySplit: 1 }];
   });
 
-  await workbook.xlsx.writeFile(path.join(exportDir, 'cara-mia-database.xlsx'));
+  const targetPath = path.join(exportDir, 'cara-mia-database.xlsx');
+  const tempPath = path.join(exportDir, `cara-mia-database-${process.pid}.tmp.xlsx`);
+  await workbook.xlsx.writeFile(tempPath);
+
+  try {
+    await fsp.rename(tempPath, targetPath);
+  } catch (error) {
+    if (['EBUSY', 'EPERM', 'EACCES'].includes(error.code)) {
+      let fallbackPath = path.join(exportDir, 'cara-mia-database-fallback.xlsx');
+      try {
+        await fsp.rename(tempPath, fallbackPath);
+      } catch (fallbackError) {
+        if (!['EBUSY', 'EPERM', 'EACCES'].includes(fallbackError.code)) {
+          throw fallbackError;
+        }
+        fallbackPath = path.join(exportDir, `cara-mia-database-${Date.now()}.xlsx`);
+        await fsp.rename(tempPath, fallbackPath);
+      }
+      console.warn(`Database workbook is busy; wrote ${path.basename(fallbackPath)} instead.`);
+      return;
+    }
+    throw error;
+  }
 }
 
 async function exportDatabaseSnapshot() {

@@ -446,7 +446,10 @@ select:focus {
   padding: 18px;
   color: var(--word-color, #050406);
   background: var(--widget-bg, rgba(255, 255, 255, 0.82));
-  font-size: 22px;
+  font-family: var(--word-font, "Bricolage Grotesque", Arial, sans-serif);
+  font-size: var(--word-size, 18px);
+  font-style: var(--word-style, normal);
+  font-weight: var(--word-weight, 500);
   line-height: 1.22;
   outline: none;
   overflow: auto;
@@ -455,7 +458,6 @@ select:focus {
 
 .external-controls .wordbox-content {
   padding: 10px;
-  font-size: 16px;
 }
 
 .media-widget {
@@ -843,6 +845,10 @@ select:focus {
   width: 142px;
 }
 
+.wordbox-widget-menu {
+  width: 172px;
+}
+
 .delete-widget-menu {
   width: auto;
   min-width: 30px;
@@ -896,6 +902,74 @@ select:focus {
   width: 100%;
   min-width: 0;
   accent-color: #efd6e4;
+}
+
+.word-font-select {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  color: #fff;
+  background: rgba(5, 4, 6, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.word-format-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 22px 22px minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+}
+
+.word-format-button {
+  font-weight: 900;
+  font-family: Georgia, serif;
+}
+
+.word-format-button.italic {
+  font-style: italic;
+}
+
+.word-format-button.active {
+  color: #050406;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.word-size-control {
+  height: 22px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 4px;
+  align-items: center;
+  padding: 0 4px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(5, 4, 6, 0.72);
+  border-radius: 5px;
+}
+
+.word-size-control svg {
+  width: 13px;
+  height: 13px;
+}
+
+.word-size-control input {
+  width: 100%;
+  min-width: 0;
+  accent-color: #efd6e4;
+}
+
+.word-color-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+}
+
+.word-color-swatch {
+  width: 100%;
 }
 
 .move-handle {

@@ -70,6 +70,16 @@ const musicPlayerColors = [
   '#24103d',
   '#2f80ed'
 ];
+const wordFonts = [
+  { label: 'Bricolage', value: '"Bricolage Grotesque", Arial, sans-serif' },
+  { label: 'Georgia', value: 'Georgia, serif' },
+  { label: 'Garamond', value: 'Garamond, "Times New Roman", serif' },
+  { label: 'Times', value: '"Times New Roman", serif' },
+  { label: 'Arial', value: 'Arial, sans-serif' },
+  { label: 'Trebuchet', value: '"Trebuchet MS", sans-serif' },
+  { label: 'Courier', value: '"Courier New", monospace' },
+  { label: 'Impact', value: 'Impact, Haettenschweiler, sans-serif' }
+];
 
 const state = {
   user: null,
@@ -282,6 +292,24 @@ function applyMusicVisuals(element, data) {
   if (music) setMusicVisualVars(music, data);
 }
 
+function wordFont(data = {}) {
+  return wordFonts.some((font) => font.value === data.fontFamily)
+    ? data.fontFamily
+    : wordFonts[0].value;
+}
+
+function wordFontSize(data = {}) {
+  return clamp(Number(data.fontSize) || 18, 10, 72);
+}
+
+function setWordVisualVars(target, data = {}) {
+  target.style.setProperty('--word-color', data.color || '#050406');
+  target.style.setProperty('--word-font', wordFont(data));
+  target.style.setProperty('--word-size', `${wordFontSize(data)}px`);
+  target.style.setProperty('--word-weight', data.bold ? '800' : '500');
+  target.style.setProperty('--word-style', data.italic ? 'italic' : 'normal');
+}
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const minutes = Math.floor(seconds / 60);
@@ -421,6 +449,89 @@ function scheduleWidgetSave(widget, patch = {}, delay = 450) {
   );
 }
 
+function appendWordboxControls(menu, widget, element, data) {
+  const fontSelect = document.createElement('select');
+  fontSelect.className = 'word-font-select';
+  fontSelect.title = 'Font';
+  fontSelect.setAttribute('aria-label', 'Font');
+  wordFonts.forEach((font) => {
+    const option = document.createElement('option');
+    option.value = font.value;
+    option.textContent = font.label;
+    option.selected = font.value === wordFont(data);
+    fontSelect.appendChild(option);
+  });
+  fontSelect.addEventListener('change', (event) => {
+    event.stopPropagation();
+    const nextData = { ...widgetData(widget), fontFamily: fontSelect.value };
+    scheduleWidgetSave(widget, { data: nextData }, 120);
+    setWordVisualVars(element, nextData);
+  });
+  menu.appendChild(fontSelect);
+
+  const formatRow = document.createElement('div');
+  formatRow.className = 'word-format-row';
+
+  const makeFormatButton = (label, key, className = '') => {
+    const button = document.createElement('button');
+    button.className = `mini-button word-format-button ${className}`.trim();
+    button.type = 'button';
+    button.title = label;
+    button.textContent = label[0];
+    button.classList.toggle('active', Boolean(data[key]));
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const nextData = { ...widgetData(widget), [key]: !widgetData(widget)[key] };
+      scheduleWidgetSave(widget, { data: nextData }, 120);
+      setWordVisualVars(element, nextData);
+      button.classList.toggle('active', Boolean(nextData[key]));
+    });
+    return button;
+  };
+
+  formatRow.appendChild(makeFormatButton('Bold', 'bold'));
+  formatRow.appendChild(makeFormatButton('Italic', 'italic', 'italic'));
+
+  const sizeControl = document.createElement('label');
+  sizeControl.className = 'word-size-control';
+  sizeControl.title = 'Text size';
+  sizeControl.innerHTML = '<i data-lucide="type"></i>';
+
+  const sizeInput = document.createElement('input');
+  sizeInput.type = 'range';
+  sizeInput.min = '10';
+  sizeInput.max = '72';
+  sizeInput.value = String(wordFontSize(data));
+  sizeInput.setAttribute('aria-label', 'Text size');
+  sizeInput.addEventListener('input', (event) => {
+    event.stopPropagation();
+    const nextData = { ...widgetData(widget), fontSize: Number(sizeInput.value) };
+    scheduleWidgetSave(widget, { data: nextData }, 120);
+    setWordVisualVars(element, nextData);
+  });
+  sizeControl.appendChild(sizeInput);
+  formatRow.appendChild(sizeControl);
+  menu.appendChild(formatRow);
+
+  const colorRow = document.createElement('div');
+  colorRow.className = 'word-color-row';
+  colors.forEach((color) => {
+    const swatch = document.createElement('button');
+    swatch.className = 'mini-swatch word-color-swatch';
+    swatch.type = 'button';
+    swatch.title = 'Text color';
+    swatch.style.background = color;
+    swatch.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const nextData = { ...widgetData(widget), color };
+      scheduleWidgetSave(widget, { data: nextData }, 120);
+      setWordVisualVars(element, nextData);
+    });
+    colorRow.appendChild(swatch);
+  });
+  menu.appendChild(colorRow);
+}
+
 function widgetShell(widget) {
   const data = widgetData(widget);
   const element = document.createElement('article');
@@ -435,7 +546,7 @@ function widgetShell(widget) {
   element.style.height = `${widget.height}px`;
   element.style.zIndex = widget.z_index;
   element.style.setProperty('--widget-bg', data.background || 'rgba(255,255,255,0.84)');
-  element.style.setProperty('--word-color', data.color || '#050406');
+  setWordVisualVars(element, data);
   setMusicVisualVars(element, data);
 
   element.addEventListener('pointerdown', (event) => {
@@ -470,7 +581,11 @@ function widgetShell(widget) {
 
     const menu = document.createElement('div');
     const deleteOnly = !(widget.type === 'canvas' || widget.type === 'wordbox' || widget.type === 'music');
-    const menuType = widget.type === 'music' ? 'music-widget-menu' : 'color-widget-menu';
+    const menuType = widget.type === 'music'
+      ? 'music-widget-menu'
+      : widget.type === 'wordbox'
+        ? 'wordbox-widget-menu'
+        : 'color-widget-menu';
     menu.className = `widget-menu ${deleteOnly ? 'delete-widget-menu' : menuType}`;
 
     if (widget.type === 'canvas' || widget.type === 'wordbox' || widget.type === 'music') {
@@ -515,6 +630,10 @@ function widgetShell(widget) {
         });
         opacityControl.appendChild(opacityInput);
         menu.appendChild(opacityControl);
+      }
+
+      if (widget.type === 'wordbox') {
+        appendWordboxControls(menu, widget, element, data);
       }
     }
 
@@ -1382,7 +1501,7 @@ signupForm.addEventListener('submit', async (event) => {
         password: form.get('password')
       })
     });
-    loginForm.accountId.value = form.get('accountId');
+    loginForm.elements.accountId.value = form.get('accountId');
     signupForm.reset();
     showLogin();
     showToast('Account created.');

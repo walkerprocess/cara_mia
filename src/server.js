@@ -399,10 +399,16 @@ app.post('/api/signup', async (req, res, next) => {
       'INSERT INTO users (id, email, account_id, password_hash, email_verified) VALUES (?, ?, ?, ?, ?)',
       [userId, email, accountId, await hashPassword(password), isPostgres ? true : 1]
     );
-    await ensureDefaultExhibit(userId);
+    const exhibit = await ensureDefaultExhibit(userId);
+    const savedUser = await get('SELECT * FROM users WHERE id = ?', [userId]);
+    if (!savedUser || !exhibit) {
+      const error = new Error('Account could not be saved. Please try again.');
+      error.statusCode = 500;
+      throw error;
+    }
     scheduleDatabaseExport();
 
-    res.status(201).json({ ok: true });
+    res.status(201).json({ ok: true, user: publicUser(savedUser) });
   } catch (error) {
     next(error);
   }
