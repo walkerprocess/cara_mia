@@ -83,9 +83,18 @@ const wordFonts = [
 const clientId = window.crypto?.randomUUID?.() || `cm-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const cursorPresets = [
   { id: 'arrow', label: 'Arrow', url: '' },
-  { id: 'preset-1', label: 'Preset 1', url: '/cursors/preset-1.jpg' },
-  { id: 'preset-2', label: 'Preset 2', url: '/cursors/preset-2.jpg' },
-  { id: 'preset-3', label: 'Preset 3', url: '/cursors/preset-3.jpg' }
+  { id: 'preset-1', label: 'Preset 1', url: '/cursors/preset-1.png' },
+  { id: 'preset-2', label: 'Preset 2', url: '/cursors/preset-2.png' },
+  { id: 'preset-3', label: 'Preset 3', url: '/cursors/preset-3.png' },
+  { id: 'preset-4', label: 'Preset 4', url: '/cursors/preset-4.png' },
+  { id: 'preset-5', label: 'Preset 5', url: '/cursors/preset-5.png' }
+];
+const backgroundPresets = [
+  { id: 'default', label: 'Hearts', url: '' },
+  { id: 'goth', label: 'Goth', url: '/backgrounds/goth.jpg' },
+  { id: 'starry', label: 'Starry', url: '/backgrounds/starry.jpg' },
+  { id: 'office', label: 'Office', url: '/backgrounds/office.jpg' },
+  { id: 'dream', label: 'Dream', url: '/backgrounds/dream.jpg' }
 ];
 const cursorColors = ['#7d38ff', '#ef314d', '#f1bfd4', '#2de2e6', '#5dff9b', '#ffc857', '#ffffff', '#050406'];
 const randomCursorColor = cursorColors[Math.floor(Math.random() * cursorColors.length)];
@@ -146,6 +155,7 @@ const cursorPreview = $('#cursorPreview');
 const cursorColorInput = $('#cursorColorInput');
 const cursorPresetGrid = $('#cursorPresetGrid');
 const cursorUploadInput = $('#cursorUploadInput');
+const backgroundPresetGrid = $('#backgroundPresetGrid');
 const musicDialog = $('#musicDialog');
 const musicSearchForm = $('#musicSearchForm');
 const musicSearchInput = $('#musicSearchInput');
@@ -192,12 +202,16 @@ async function api(path, options = {}) {
 function loadCursorProfile() {
   try {
     const saved = JSON.parse(localStorage.getItem('caraMiaCursorProfile') || '{}');
+    const backgroundTheme = backgroundPresets.some((preset) => preset.id === saved.backgroundTheme)
+      ? saved.backgroundTheme
+      : 'default';
     return {
       color: /^#[0-9a-fA-F]{6}$/.test(saved.color) ? saved.color : randomCursorColor,
-      cursorImage: typeof saved.cursorImage === 'string' ? saved.cursorImage : ''
+      cursorImage: typeof saved.cursorImage === 'string' ? saved.cursorImage : '',
+      backgroundTheme
     };
   } catch {
-    return { color: randomCursorColor, cursorImage: '' };
+    return { color: randomCursorColor, cursorImage: '', backgroundTheme: 'default' };
   }
 }
 
@@ -208,6 +222,12 @@ function saveCursorProfile() {
 function activeCursorPreset() {
   return cursorPresets.find((preset) => preset.url && preset.url === state.cursorProfile.cursorImage)?.id
     || (state.cursorProfile.cursorImage ? 'custom' : 'arrow');
+}
+
+function activeBackgroundPreset() {
+  return backgroundPresets.some((preset) => preset.id === state.cursorProfile.backgroundTheme)
+    ? state.cursorProfile.backgroundTheme
+    : 'default';
 }
 
 function cursorPayload(point) {
@@ -328,6 +348,33 @@ function buildCursorPresets() {
     cursorPresetGrid.appendChild(button);
   });
   renderCursorPreview();
+}
+
+function applyBackgroundTheme() {
+  document.body.dataset.backgroundTheme = activeBackgroundPreset();
+}
+
+function renderBackgroundPresets() {
+  if (!backgroundPresetGrid) return;
+  backgroundPresetGrid.innerHTML = '';
+  backgroundPresets.forEach((preset) => {
+    const button = document.createElement('button');
+    button.className = 'background-preset';
+    button.type = 'button';
+    button.dataset.background = preset.id;
+    button.title = preset.label;
+    button.innerHTML = preset.url
+      ? `<span class="background-preset-thumb" style="background-image: url('${preset.url}')"></span><strong>${preset.label}</strong>`
+      : '<span class="background-preset-thumb default-thumb"></span><strong>Hearts</strong>';
+    button.classList.toggle('active', preset.id === activeBackgroundPreset());
+    button.addEventListener('click', () => {
+      state.cursorProfile.backgroundTheme = preset.id;
+      saveCursorProfile();
+      applyBackgroundTheme();
+      renderBackgroundPresets();
+    });
+    backgroundPresetGrid.appendChild(button);
+  });
 }
 
 function resizeCursorUpload(file) {
@@ -1801,6 +1848,7 @@ exhibitPicker.addEventListener('change', () => {
 
 cursorSettingsButton.addEventListener('click', () => {
   renderCursorPreview();
+  renderBackgroundPresets();
   cursorDialog.showModal();
 });
 
@@ -2022,6 +2070,8 @@ window.addEventListener('resize', () => {
 
 createHearts();
 buildCursorPresets();
+applyBackgroundTheme();
+renderBackgroundPresets();
 setMusicPresentation('cover');
 refreshIcons();
 checkSession();

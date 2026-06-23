@@ -12,6 +12,7 @@
   <body>
     <div class="gradient-field" aria-hidden="true"></div>
     <div id="heartField" class="heart-field" aria-hidden="true"></div>
+    <div id="themeField" class="theme-field" aria-hidden="true"></div>
 
     <main id="authView" class="auth-view view">
       <section id="loginPanel" class="auth-panel">
@@ -126,16 +127,23 @@
       <section class="modal-panel cursor-panel">
         <button class="modal-close" type="button" aria-label="Close"><i data-lucide="x"></i></button>
         <h2>Cursor</h2>
-        <div class="cursor-preview-row">
-          <div id="cursorPreview" class="cursor-preview"></div>
-          <input id="cursorColorInput" type="color" aria-label="Cursor color" />
-        </div>
-        <div id="cursorPresetGrid" class="cursor-preset-grid" aria-label="Cursor presets"></div>
-        <label class="cursor-upload">
-          <i data-lucide="image-up"></i>
-          <span>Upload</span>
-          <input id="cursorUploadInput" type="file" accept="image/*" />
-        </label>
+        <section class="settings-section">
+          <h3>Cursor</h3>
+          <div class="cursor-preview-row">
+            <div id="cursorPreview" class="cursor-preview"></div>
+            <input id="cursorColorInput" type="color" aria-label="Cursor color" />
+          </div>
+          <div id="cursorPresetGrid" class="cursor-preset-grid" aria-label="Cursor presets"></div>
+          <label class="cursor-upload">
+            <i data-lucide="image-up"></i>
+            <span>Upload</span>
+            <input id="cursorUploadInput" type="file" accept="image/*" />
+          </label>
+        </section>
+        <section class="settings-section">
+          <h3>Background</h3>
+          <div id="backgroundPresetGrid" class="background-preset-grid" aria-label="Background presets"></div>
+        </section>
       </section>
     </dialog>
 
