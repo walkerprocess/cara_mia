@@ -80,6 +80,7 @@ const wordFonts = [
   { label: 'Courier', value: '"Courier New", monospace' },
   { label: 'Impact', value: 'Impact, Haettenschweiler, sans-serif' }
 ];
+const clientId = window.crypto?.randomUUID?.() || `cm-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const state = {
   user: null,
@@ -100,6 +101,9 @@ const state = {
   pendingAssetType: 'sticker',
   drawingFrame: null,
   pendingDrawPoint: null,
+  liveEvents: null,
+  liveExhibitId: null,
+  liveRetryTimer: null,
   saveTimers: new Map(),
   controlTimers: new WeakMap()
 };
@@ -155,6 +159,7 @@ async function api(path, options = {}) {
     ...options,
     headers: {
       ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      'X-Cara-Mia-Client-Id': clientId,
       ...(options.headers || {})
     }
   });
@@ -1357,6 +1362,81 @@ function renderBoard() {
   refreshIcons();
 }
 
+function applyRemoteWidget(widget) {
+  if (!state.exhibit || widget.exhibit_id !== state.exhibit.id) return;
+
+  const index = state.exhibit.widgets.findIndex((item) => item.id === widget.id);
+  if (index >= 0) {
+    state.exhibit.widgets[index] = widget;
+  } else {
+    state.exhibit.widgets.push(widget);
+  }
+  state.exhibit.widgets.sort((a, b) => (a.z_index - b.z_index) || String(a.created_at).localeCompare(String(b.created_at)));
+  renderBoard();
+}
+
+function removeRemoteWidget(widgetId) {
+  if (!state.exhibit) return;
+  const nextWidgets = state.exhibit.widgets.filter((widget) => widget.id !== widgetId);
+  if (nextWidgets.length === state.exhibit.widgets.length) return;
+  state.exhibit.widgets = nextWidgets;
+  renderBoard();
+}
+
+function closeLiveEvents() {
+  if (state.liveRetryTimer) {
+    window.clearTimeout(state.liveRetryTimer);
+    state.liveRetryTimer = null;
+  }
+  if (state.liveEvents) {
+    state.liveEvents.close();
+    state.liveEvents = null;
+  }
+  state.liveExhibitId = null;
+}
+
+function handleLiveMessage(event) {
+  try {
+    const payload = JSON.parse(event.data || '{}');
+    if (payload.sourceClientId === clientId) return;
+
+    if (event.type === 'widget-created' || event.type === 'widget-updated') {
+      applyRemoteWidget(payload.widget);
+    }
+    if (event.type === 'widget-deleted') {
+      removeRemoteWidget(payload.widgetId);
+    }
+  } catch {
+    // Ignore malformed live collaboration events.
+  }
+}
+
+function openLiveEvents(exhibitId) {
+  if (!window.EventSource || !exhibitId) return;
+  if (state.liveExhibitId === exhibitId && state.liveEvents) return;
+
+  closeLiveEvents();
+  state.liveExhibitId = exhibitId;
+  const events = new EventSource(`/api/exhibits/${encodeURIComponent(exhibitId)}/events?clientId=${encodeURIComponent(clientId)}`);
+  state.liveEvents = events;
+
+  ['widget-created', 'widget-updated', 'widget-deleted'].forEach((eventName) => {
+    events.addEventListener(eventName, handleLiveMessage);
+  });
+
+  events.onerror = () => {
+    if (state.liveEvents !== events) return;
+    events.close();
+    state.liveEvents = null;
+    window.clearTimeout(state.liveRetryTimer);
+    state.liveRetryTimer = window.setTimeout(() => {
+      if (state.exhibit?.id === exhibitId) {
+        openLiveEvents(exhibitId);
+      }
+    }, 2200);
+  };
+}
+
 async function loadExhibits(preferredId) {
   const { exhibits } = await api('/api/exhibits');
   state.exhibits = exhibits;
@@ -1385,6 +1465,7 @@ async function loadExhibit(id) {
   state.exhibit = exhibit;
   localStorage.setItem('caraMiaExhibitId', id);
   renderBoard();
+  openLiveEvents(id);
 }
 
 async function enterStudio() {
@@ -1398,6 +1479,7 @@ async function checkSession() {
     state.user = user;
     await enterStudio();
   } catch {
+    closeLiveEvents();
     setView('auth');
   }
 }
@@ -1515,6 +1597,7 @@ showLoginButton.addEventListener('click', showLogin);
 
 logoutButton.addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST' });
+  closeLiveEvents();
   state.user = null;
   state.exhibit = null;
   setView('auth');

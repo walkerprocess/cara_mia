@@ -24,6 +24,7 @@ const {
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, '..', 'public');
+const exhibitStreams = new Map();
 
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
@@ -60,6 +61,40 @@ function serializeData(data) {
     throw error;
   }
   return json;
+}
+
+function cleanClientId(value) {
+  return String(value || '').replace(/[^a-zA-Z0-9_.:-]/g, '').slice(0, 80);
+}
+
+function writeLiveEvent(res, event, payload = {}) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function addExhibitStream(exhibitId, client) {
+  if (!exhibitStreams.has(exhibitId)) {
+    exhibitStreams.set(exhibitId, new Set());
+  }
+  exhibitStreams.get(exhibitId).add(client);
+}
+
+function removeExhibitStream(exhibitId, client) {
+  const clients = exhibitStreams.get(exhibitId);
+  if (!clients) return;
+  clients.delete(client);
+  if (!clients.size) {
+    exhibitStreams.delete(exhibitId);
+  }
+}
+
+function broadcastExhibitEvent(exhibitId, event, payload = {}) {
+  const clients = exhibitStreams.get(exhibitId);
+  if (!clients) return;
+
+  for (const client of clients) {
+    writeLiveEvent(client.res, event, payload);
+  }
 }
 
 function svgDataUri(svg) {
@@ -467,6 +502,42 @@ app.get('/api/exhibits/:id', requireAuth, async (req, res, next) => {
   }
 });
 
+app.get('/api/exhibits/:id/events', requireAuth, async (req, res, next) => {
+  try {
+    const access = await getAccess(req.params.id, req.user.id);
+    if (!access) {
+      return res.status(404).json({ error: 'This exhibit is not available.' });
+    }
+
+    res.set({
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'Content-Type': 'text/event-stream',
+      'X-Accel-Buffering': 'no'
+    });
+    res.flushHeaders?.();
+    res.write(': connected\n\n');
+
+    const client = {
+      id: cleanClientId(req.query.clientId),
+      res
+    };
+    addExhibitStream(req.params.id, client);
+    writeLiveEvent(res, 'ready', { exhibitId: req.params.id });
+
+    const heartbeat = setInterval(() => {
+      res.write(': heartbeat\n\n');
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      removeExhibitStream(req.params.id, client);
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/widgets', requireAuth, async (req, res, next) => {
   try {
     const exhibitId = String(req.body.exhibitId || '');
@@ -513,7 +584,12 @@ app.post('/api/widgets', requireAuth, async (req, res, next) => {
     const saved = await get('SELECT * FROM widgets WHERE id = ?', [widget.id]);
     await query('UPDATE exhibits SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [exhibitId]);
     scheduleDatabaseExport();
-    res.status(201).json({ widget: normalizeWidget(saved) });
+    const normalized = normalizeWidget(saved);
+    broadcastExhibitEvent(exhibitId, 'widget-created', {
+      sourceClientId: cleanClientId(req.get('x-cara-mia-client-id')),
+      widget: normalized
+    });
+    res.status(201).json({ widget: normalized });
   } catch (error) {
     next(error);
   }
@@ -551,7 +627,12 @@ app.patch('/api/widgets/:id', requireAuth, async (req, res, next) => {
 
     const saved = await get('SELECT * FROM widgets WHERE id = ?', [req.params.id]);
     scheduleDatabaseExport();
-    res.json({ widget: normalizeWidget(saved) });
+    const normalized = normalizeWidget(saved);
+    broadcastExhibitEvent(existing.exhibit_id, 'widget-updated', {
+      sourceClientId: cleanClientId(req.get('x-cara-mia-client-id')),
+      widget: normalized
+    });
+    res.json({ widget: normalized });
   } catch (error) {
     next(error);
   }
@@ -572,6 +653,10 @@ app.delete('/api/widgets/:id', requireAuth, async (req, res, next) => {
     await query('DELETE FROM widgets WHERE id = ?', [req.params.id]);
     await query('UPDATE exhibits SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [existing.exhibit_id]);
     scheduleDatabaseExport();
+    broadcastExhibitEvent(existing.exhibit_id, 'widget-deleted', {
+      sourceClientId: cleanClientId(req.get('x-cara-mia-client-id')),
+      widgetId: req.params.id
+    });
     res.json({ ok: true });
   } catch (error) {
     next(error);
