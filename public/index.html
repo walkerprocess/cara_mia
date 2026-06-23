@@ -54,6 +54,9 @@
     <main id="studioView" class="studio-view view hidden">
       <div class="studio-topbar">
         <select id="exhibitPicker" aria-label="Exhibit"></select>
+        <button id="cursorSettingsButton" class="icon-button cursor-settings-button" type="button" title="Cursor" aria-label="Cursor settings">
+          <i data-lucide="settings"></i>
+        </button>
         <span id="rolePill" class="role-pill">OWNER</span>
         <button id="shareButton" class="share-button" type="button">SHARE</button>
         <button id="logoutButton" class="icon-button" type="button" title="Log out" aria-label="Log out">
@@ -117,6 +120,23 @@
         </label>
         <button class="primary-button" type="submit">Apply</button>
       </form>
+    </dialog>
+
+    <dialog id="cursorDialog" class="modal">
+      <section class="modal-panel cursor-panel">
+        <button class="modal-close" type="button" aria-label="Close"><i data-lucide="x"></i></button>
+        <h2>Cursor</h2>
+        <div class="cursor-preview-row">
+          <div id="cursorPreview" class="cursor-preview"></div>
+          <input id="cursorColorInput" type="color" aria-label="Cursor color" />
+        </div>
+        <div id="cursorPresetGrid" class="cursor-preset-grid" aria-label="Cursor presets"></div>
+        <label class="cursor-upload">
+          <i data-lucide="image-up"></i>
+          <span>Upload</span>
+          <input id="cursorUploadInput" type="file" accept="image/*" />
+        </label>
+      </section>
     </dialog>
 
     <dialog id="musicDialog" class="modal">

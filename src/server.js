@@ -67,6 +67,21 @@ function cleanClientId(value) {
   return String(value || '').replace(/[^a-zA-Z0-9_.:-]/g, '').slice(0, 80);
 }
 
+function cleanCursorColor(value) {
+  const color = String(value || '');
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#7d38ff';
+}
+
+function cleanCursorImage(value) {
+  const image = String(value || '');
+  if (!image) return '';
+  if (image.startsWith('/cursors/')) return image.slice(0, 160);
+  if (/^data:image\/(png|jpeg|jpg|webp);base64,[a-zA-Z0-9+/=]+$/.test(image) && image.length < 180000) {
+    return image;
+  }
+  return '';
+}
+
 function writeLiveEvent(res, event, payload = {}) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -520,6 +535,7 @@ app.get('/api/exhibits/:id/events', requireAuth, async (req, res, next) => {
 
     const client = {
       id: cleanClientId(req.query.clientId),
+      user: req.publicUser,
       res
     };
     addExhibitStream(req.params.id, client);
@@ -532,7 +548,34 @@ app.get('/api/exhibits/:id/events', requireAuth, async (req, res, next) => {
     req.on('close', () => {
       clearInterval(heartbeat);
       removeExhibitStream(req.params.id, client);
+      broadcastExhibitEvent(req.params.id, 'cursor-left', {
+        sourceClientId: client.id,
+        accountId: client.user.accountId
+      });
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/exhibits/:id/presence', requireAuth, async (req, res, next) => {
+  try {
+    const access = await getAccess(req.params.id, req.user.id);
+    if (!access) {
+      return res.status(404).json({ error: 'This exhibit is not available.' });
+    }
+
+    const cursorImage = cleanCursorImage(req.body.cursorImage);
+    broadcastExhibitEvent(req.params.id, 'cursor-updated', {
+      sourceClientId: cleanClientId(req.get('x-cara-mia-client-id')),
+      accountId: req.publicUser.accountId,
+      x: clampNumber(req.body.x, 0, -20000, 20000),
+      y: clampNumber(req.body.y, 0, -20000, 20000),
+      color: cleanCursorColor(req.body.color),
+      cursorKind: cursorImage ? 'image' : 'arrow',
+      cursorImage
+    });
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }

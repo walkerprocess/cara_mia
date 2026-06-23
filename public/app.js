@@ -81,6 +81,14 @@ const wordFonts = [
   { label: 'Impact', value: 'Impact, Haettenschweiler, sans-serif' }
 ];
 const clientId = window.crypto?.randomUUID?.() || `cm-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const cursorPresets = [
+  { id: 'arrow', label: 'Arrow', url: '' },
+  { id: 'preset-1', label: 'Preset 1', url: '/cursors/preset-1.jpg' },
+  { id: 'preset-2', label: 'Preset 2', url: '/cursors/preset-2.jpg' },
+  { id: 'preset-3', label: 'Preset 3', url: '/cursors/preset-3.jpg' }
+];
+const cursorColors = ['#7d38ff', '#ef314d', '#f1bfd4', '#2de2e6', '#5dff9b', '#ffc857', '#ffffff', '#050406'];
+const randomCursorColor = cursorColors[Math.floor(Math.random() * cursorColors.length)];
 
 const state = {
   user: null,
@@ -104,6 +112,10 @@ const state = {
   liveEvents: null,
   liveExhibitId: null,
   liveRetryTimer: null,
+  cursorProfile: loadCursorProfile(),
+  cursorPeers: new Map(),
+  cursorSendTimer: null,
+  pendingCursorPoint: null,
   saveTimers: new Map(),
   controlTimers: new WeakMap()
 };
@@ -119,6 +131,7 @@ const showLoginButton = $('#showLoginButton');
 const board = $('#board');
 const dragPreview = $('#dragPreview');
 const exhibitPicker = $('#exhibitPicker');
+const cursorSettingsButton = $('#cursorSettingsButton');
 const rolePill = $('#rolePill');
 const shareButton = $('#shareButton');
 const logoutButton = $('#logoutButton');
@@ -128,6 +141,11 @@ const colorRail = $('#colorRail');
 const toast = $('#toast');
 const shareDialog = $('#shareDialog');
 const shareForm = $('#shareForm');
+const cursorDialog = $('#cursorDialog');
+const cursorPreview = $('#cursorPreview');
+const cursorColorInput = $('#cursorColorInput');
+const cursorPresetGrid = $('#cursorPresetGrid');
+const cursorUploadInput = $('#cursorUploadInput');
 const musicDialog = $('#musicDialog');
 const musicSearchForm = $('#musicSearchForm');
 const musicSearchInput = $('#musicSearchInput');
@@ -169,6 +187,170 @@ async function api(path, options = {}) {
     throw new Error(payload.error || 'Something went wrong.');
   }
   return payload;
+}
+
+function loadCursorProfile() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('caraMiaCursorProfile') || '{}');
+    return {
+      color: /^#[0-9a-fA-F]{6}$/.test(saved.color) ? saved.color : randomCursorColor,
+      cursorImage: typeof saved.cursorImage === 'string' ? saved.cursorImage : ''
+    };
+  } catch {
+    return { color: randomCursorColor, cursorImage: '' };
+  }
+}
+
+function saveCursorProfile() {
+  localStorage.setItem('caraMiaCursorProfile', JSON.stringify(state.cursorProfile));
+}
+
+function activeCursorPreset() {
+  return cursorPresets.find((preset) => preset.url && preset.url === state.cursorProfile.cursorImage)?.id
+    || (state.cursorProfile.cursorImage ? 'custom' : 'arrow');
+}
+
+function cursorPayload(point) {
+  return {
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+    color: state.cursorProfile.color,
+    cursorImage: state.cursorProfile.cursorImage
+  };
+}
+
+function remoteCursorMarkup(peer) {
+  if (peer.cursorKind === 'image' && peer.cursorImage) {
+    return `<img src="${peer.cursorImage}" alt="">`;
+  }
+  return '<span class="remote-cursor-arrow"></span>';
+}
+
+function renderRemoteCursors() {
+  $$('.remote-cursor', board).forEach((cursor) => cursor.remove());
+  state.cursorPeers.forEach((peer, id) => {
+    if (!state.exhibit || peer.exhibitId !== state.exhibit.id) return;
+    if (Date.now() - peer.updatedAt > 12000) {
+      state.cursorPeers.delete(id);
+      return;
+    }
+
+    const cursor = document.createElement('div');
+    cursor.className = `remote-cursor ${peer.cursorKind === 'image' ? 'image-cursor' : 'arrow-cursor'}`;
+    cursor.style.left = `${peer.x}px`;
+    cursor.style.top = `${peer.y}px`;
+    cursor.style.setProperty('--cursor-color', peer.color || '#7d38ff');
+    cursor.innerHTML = `${remoteCursorMarkup(peer)}<strong>${peer.accountId || 'guest'}</strong>`;
+    board.appendChild(cursor);
+  });
+}
+
+function removeRemoteCursors() {
+  state.cursorPeers.clear();
+  $$('.remote-cursor', board).forEach((cursor) => cursor.remove());
+}
+
+function handleCursorUpdate(payload) {
+  if (!state.exhibit || payload.sourceClientId === clientId) return;
+  state.cursorPeers.set(payload.sourceClientId, {
+    ...payload,
+    exhibitId: state.exhibit.id,
+    updatedAt: Date.now()
+  });
+  renderRemoteCursors();
+}
+
+function handleCursorLeft(payload) {
+  state.cursorPeers.delete(payload.sourceClientId);
+  renderRemoteCursors();
+}
+
+function sendCursorPresence(point) {
+  if (!state.exhibit) return;
+  api(`/api/exhibits/${state.exhibit.id}/presence`, {
+    method: 'POST',
+    body: JSON.stringify(cursorPayload(point))
+  }).catch(() => {});
+}
+
+function queueCursorPresence(point) {
+  if (!state.exhibit) return;
+  state.pendingCursorPoint = point;
+  if (state.cursorSendTimer) return;
+
+  state.cursorSendTimer = window.setTimeout(() => {
+    state.cursorSendTimer = null;
+    if (state.pendingCursorPoint) {
+      sendCursorPresence(state.pendingCursorPoint);
+      state.pendingCursorPoint = null;
+    }
+  }, 90);
+}
+
+function setLocalCursorImage() {
+  if (state.cursorProfile.cursorImage) {
+    board.style.cursor = `url("${state.cursorProfile.cursorImage}") 4 4, auto`;
+  } else {
+    board.style.cursor = '';
+  }
+}
+
+function renderCursorPreview() {
+  cursorColorInput.value = state.cursorProfile.color;
+  cursorPreview.style.setProperty('--cursor-color', state.cursorProfile.color);
+  cursorPreview.innerHTML = state.cursorProfile.cursorImage
+    ? `<img src="${state.cursorProfile.cursorImage}" alt="">`
+    : '<span class="remote-cursor-arrow"></span>';
+
+  $$('.cursor-preset').forEach((button) => {
+    button.classList.toggle('active', button.dataset.preset === activeCursorPreset());
+  });
+  setLocalCursorImage();
+}
+
+function buildCursorPresets() {
+  cursorPresetGrid.innerHTML = '';
+  cursorPresets.forEach((preset) => {
+    const button = document.createElement('button');
+    button.className = 'cursor-preset';
+    button.type = 'button';
+    button.dataset.preset = preset.id;
+    button.title = preset.label;
+    button.innerHTML = preset.url
+      ? `<img src="${preset.url}" alt="">`
+      : '<span class="remote-cursor-arrow"></span>';
+    button.addEventListener('click', () => {
+      state.cursorProfile.cursorImage = preset.url;
+      saveCursorProfile();
+      renderCursorPreview();
+      if (state.pendingCursorPoint) sendCursorPresence(state.pendingCursorPoint);
+    });
+    cursorPresetGrid.appendChild(button);
+  });
+  renderCursorPreview();
+}
+
+function resizeCursorUpload(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxSize = 96;
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      image.onerror = reject;
+      image.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function createHearts() {
@@ -1360,6 +1542,7 @@ function renderBoard() {
 
   setControlsForRole();
   refreshIcons();
+  renderRemoteCursors();
 }
 
 function applyRemoteWidget(widget) {
@@ -1393,6 +1576,7 @@ function closeLiveEvents() {
     state.liveEvents = null;
   }
   state.liveExhibitId = null;
+  removeRemoteCursors();
 }
 
 function handleLiveMessage(event) {
@@ -1405,6 +1589,12 @@ function handleLiveMessage(event) {
     }
     if (event.type === 'widget-deleted') {
       removeRemoteWidget(payload.widgetId);
+    }
+    if (event.type === 'cursor-updated') {
+      handleCursorUpdate(payload);
+    }
+    if (event.type === 'cursor-left') {
+      handleCursorLeft(payload);
     }
   } catch {
     // Ignore malformed live collaboration events.
@@ -1420,7 +1610,7 @@ function openLiveEvents(exhibitId) {
   const events = new EventSource(`/api/exhibits/${encodeURIComponent(exhibitId)}/events?clientId=${encodeURIComponent(clientId)}`);
   state.liveEvents = events;
 
-  ['widget-created', 'widget-updated', 'widget-deleted'].forEach((eventName) => {
+  ['widget-created', 'widget-updated', 'widget-deleted', 'cursor-updated', 'cursor-left'].forEach((eventName) => {
     events.addEventListener(eventName, handleLiveMessage);
   });
 
@@ -1462,6 +1652,7 @@ async function loadExhibits(preferredId) {
 
 async function loadExhibit(id) {
   const { exhibit } = await api(`/api/exhibits/${id}`);
+  removeRemoteCursors();
   state.exhibit = exhibit;
   localStorage.setItem('caraMiaExhibitId', id);
   renderBoard();
@@ -1608,6 +1799,33 @@ exhibitPicker.addEventListener('change', () => {
   loadExhibit(exhibitPicker.value).catch((error) => showToast(error.message));
 });
 
+cursorSettingsButton.addEventListener('click', () => {
+  renderCursorPreview();
+  cursorDialog.showModal();
+});
+
+cursorColorInput.addEventListener('input', () => {
+  state.cursorProfile.color = cursorColorInput.value;
+  saveCursorProfile();
+  renderCursorPreview();
+  if (state.pendingCursorPoint) sendCursorPresence(state.pendingCursorPoint);
+});
+
+cursorUploadInput.addEventListener('change', async () => {
+  const [file] = cursorUploadInput.files || [];
+  if (!file) return;
+  try {
+    state.cursorProfile.cursorImage = await resizeCursorUpload(file);
+    saveCursorProfile();
+    renderCursorPreview();
+    if (state.pendingCursorPoint) sendCursorPresence(state.pendingCursorPoint);
+  } catch {
+    showToast('Cursor image could not be loaded.');
+  } finally {
+    cursorUploadInput.value = '';
+  }
+});
+
 $$('.tool-button').forEach((button) => {
   button.addEventListener('click', () => {
     if (button.dataset.tool === 'music') {
@@ -1669,6 +1887,7 @@ board.addEventListener('pointerdown', (event) => {
 });
 
 board.addEventListener('pointermove', (event) => {
+  queueCursorPresence(boardPoint(event));
   if (!state.draft) return;
   const rect = normalizeRect(state.draft.start, boardPoint(event));
   updateDragPreview(rect);
@@ -1802,6 +2021,7 @@ window.addEventListener('resize', () => {
 });
 
 createHearts();
+buildCursorPresets();
 setMusicPresentation('cover');
 refreshIcons();
 checkSession();
