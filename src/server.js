@@ -53,6 +53,11 @@ function cleanPageName(value) {
   return name || 'Untitled';
 }
 
+function cleanBackgroundTheme(value) {
+  const theme = String(value || 'default');
+  return ['default', 'goth', 'starry', 'office', 'dream'].includes(theme) ? theme : 'default';
+}
+
 function clampNumber(value, fallback, min, max) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -650,8 +655,16 @@ app.patch('/api/exhibits/:id/pages/:pageId', requireAuth, async (req, res, next)
     }
 
     await query(
-      'UPDATE exhibit_pages SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [cleanPageName(req.body.name), req.params.pageId]
+      `UPDATE exhibit_pages
+       SET name = ?, background_theme = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [
+        req.body.name === undefined ? existing.name : cleanPageName(req.body.name),
+        req.body.backgroundTheme === undefined && req.body.background_theme === undefined
+          ? existing.background_theme || 'default'
+          : cleanBackgroundTheme(req.body.backgroundTheme ?? req.body.background_theme),
+        req.params.pageId
+      ]
     );
     await query('UPDATE exhibits SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [req.params.id]);
     scheduleDatabaseExport();

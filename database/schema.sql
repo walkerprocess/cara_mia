@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS exhibit_pages (
   id TEXT PRIMARY KEY,
   exhibit_id TEXT NOT NULL REFERENCES exhibits(id) ON DELETE CASCADE,
   name TEXT NOT NULL DEFAULT 'Page 1',
+  background_theme TEXT NOT NULL DEFAULT 'default',
   sort_order INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -51,7 +52,6 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 
 CREATE INDEX IF NOT EXISTS idx_widgets_exhibit ON widgets(exhibit_id);
-CREATE INDEX IF NOT EXISTS idx_widgets_page ON widgets(page_id);
 CREATE INDEX IF NOT EXISTS idx_widgets_created_by ON widgets(created_by);
 CREATE INDEX IF NOT EXISTS idx_pages_exhibit ON exhibit_pages(exhibit_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_exhibits_owner ON exhibits(owner_user_id);

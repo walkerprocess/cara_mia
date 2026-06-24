@@ -158,6 +158,7 @@ const showLoginButton = $('#showLoginButton');
 const board = $('#board');
 const boardViewport = $('#boardViewport');
 const dragPreview = $('#dragPreview');
+const localCursor = $('#localCursor');
 const exhibitPicker = $('#exhibitPicker');
 const cursorSettingsButton = $('#cursorSettingsButton');
 const readModeButton = $('#readModeButton');
@@ -234,16 +235,12 @@ async function api(path, options = {}) {
 function loadCursorProfile() {
   try {
     const saved = JSON.parse(localStorage.getItem('caraMiaCursorProfile') || '{}');
-    const backgroundTheme = backgroundPresets.some((preset) => preset.id === saved.backgroundTheme)
-      ? saved.backgroundTheme
-      : 'default';
     return {
       color: /^#[0-9a-fA-F]{6}$/.test(saved.color) ? saved.color : randomCursorColor,
-      cursorImage: typeof saved.cursorImage === 'string' ? saved.cursorImage : '',
-      backgroundTheme
+      cursorImage: typeof saved.cursorImage === 'string' ? saved.cursorImage : ''
     };
   } catch {
-    return { color: randomCursorColor, cursorImage: '', backgroundTheme: 'default' };
+    return { color: randomCursorColor, cursorImage: '' };
   }
 }
 
@@ -257,8 +254,9 @@ function activeCursorPreset() {
 }
 
 function activeBackgroundPreset() {
-  return backgroundPresets.some((preset) => preset.id === state.cursorProfile.backgroundTheme)
-    ? state.cursorProfile.backgroundTheme
+  const pageTheme = activePage()?.backgroundTheme || 'default';
+  return backgroundPresets.some((preset) => preset.id === pageTheme)
+    ? pageTheme
     : 'default';
 }
 
@@ -276,6 +274,25 @@ function remoteCursorMarkup(peer) {
     return `<img src="${peer.cursorImage}" alt="">`;
   }
   return '<span class="remote-cursor-arrow"></span>';
+}
+
+function localCursorMarkup() {
+  return state.cursorProfile.cursorImage
+    ? `<img src="${state.cursorProfile.cursorImage}" alt="">`
+    : '<span class="remote-cursor-arrow"></span>';
+}
+
+function renderLocalCursor(point = null) {
+  if (!localCursor) return;
+  localCursor.style.setProperty('--cursor-color', state.cursorProfile.color);
+  localCursor.classList.toggle('image-cursor', Boolean(state.cursorProfile.cursorImage));
+  localCursor.classList.toggle('arrow-cursor', !state.cursorProfile.cursorImage);
+  localCursor.innerHTML = `${localCursorMarkup()}<strong>${state.user?.accountId || 'you'}</strong>`;
+  if (point) {
+    localCursor.style.left = `${point.x}px`;
+    localCursor.style.top = `${point.y}px`;
+    localCursor.classList.remove('hidden');
+  }
 }
 
 function renderRemoteCursors() {
@@ -345,6 +362,7 @@ function setLocalCursorImage() {
   } else {
     board.style.cursor = '';
   }
+  renderLocalCursor();
 }
 
 function renderCursorPreview() {
@@ -399,11 +417,19 @@ function renderBackgroundPresets() {
       ? `<span class="background-preset-thumb" style="background-image: url('${preset.url}')"></span><strong>${preset.label}</strong>`
       : '<span class="background-preset-thumb default-thumb"></span><strong>Hearts</strong>';
     button.classList.toggle('active', preset.id === activeBackgroundPreset());
-    button.addEventListener('click', () => {
-      state.cursorProfile.backgroundTheme = preset.id;
-      saveCursorProfile();
-      applyBackgroundTheme();
-      renderBackgroundPresets();
+    button.addEventListener('click', async () => {
+      if (!state.exhibit || !state.activePageId) return;
+      try {
+        const { pages } = await api(`/api/exhibits/${state.exhibit.id}/pages/${state.activePageId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ backgroundTheme: preset.id })
+        });
+        state.exhibit.pages = pages;
+        applyBackgroundTheme();
+        renderBackgroundPresets();
+      } catch (error) {
+        showToast(error.message);
+      }
     });
     backgroundPresetGrid.appendChild(button);
   });
@@ -524,6 +550,8 @@ function setActivePage(pageId) {
   state.activePageId = pageId;
   localStorage.setItem(`caraMiaPage:${state.exhibit.id}`, pageId);
   renderPagePicker();
+  applyBackgroundTheme();
+  renderBackgroundPresets();
   clearWidgetSelection();
   renderBoard();
 }
@@ -1810,6 +1838,8 @@ function applyRemotePages(pages = []) {
   if (!pages.some((page) => page.id === state.activePageId)) {
     state.activePageId = pages[0]?.id || null;
   }
+  applyBackgroundTheme();
+  renderBackgroundPresets();
   renderPagePicker();
   renderBoard();
 }
@@ -1911,6 +1941,7 @@ async function loadExhibit(id) {
     : exhibit.pages?.[0]?.id || null;
   localStorage.setItem('caraMiaExhibitId', id);
   applyZoom();
+  applyBackgroundTheme();
   renderBoard();
   openLiveEvents(id);
 }
@@ -2256,10 +2287,16 @@ board.addEventListener('pointerdown', (event) => {
 });
 
 board.addEventListener('pointermove', (event) => {
-  queueCursorPresence(boardPoint(event));
+  const point = boardPoint(event);
+  renderLocalCursor(point);
+  queueCursorPresence(point);
   if (!state.draft) return;
-  const rect = normalizeRect(state.draft.start, boardPoint(event));
+  const rect = normalizeRect(state.draft.start, point);
   updateDragPreview(rect);
+});
+
+board.addEventListener('pointerleave', () => {
+  localCursor?.classList.add('hidden');
 });
 
 board.addEventListener('pointerup', async (event) => {

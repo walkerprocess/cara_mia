@@ -22,7 +22,7 @@ const widgetTypeCheck = "type IN ('canvas', 'wordbox', 'music', 'sticker', 'gif'
 const exportColumns = {
   users: ['id', 'email', 'account_id', 'password_hash', 'email_verified', 'created_at'],
   exhibits: ['id', 'owner_user_id', 'title', 'created_at', 'updated_at'],
-  exhibit_pages: ['id', 'exhibit_id', 'name', 'sort_order', 'created_at', 'updated_at'],
+  exhibit_pages: ['id', 'exhibit_id', 'name', 'background_theme', 'sort_order', 'created_at', 'updated_at'],
   widgets: ['id', 'exhibit_id', 'page_id', 'type', 'x', 'y', 'width', 'height', 'z_index', 'data', 'created_by', 'created_at', 'updated_at'],
   shares: ['id', 'exhibit_id', 'target_user_id', 'role', 'created_by', 'created_at']
 };
@@ -94,6 +94,7 @@ function normalizePage(row) {
     id: row.id,
     exhibitId: row.exhibit_id,
     name: row.name,
+    backgroundTheme: row.background_theme || 'default',
     sortOrder: Number(row.sort_order),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -182,7 +183,7 @@ function normalizeExportValue(value) {
 function orderedTableQuery(table) {
   if (table === 'users') return 'SELECT id, email, account_id, password_hash, email_verified, created_at FROM users ORDER BY created_at ASC';
   if (table === 'exhibits') return 'SELECT id, owner_user_id, title, created_at, updated_at FROM exhibits ORDER BY created_at ASC';
-  if (table === 'exhibit_pages') return 'SELECT id, exhibit_id, name, sort_order, created_at, updated_at FROM exhibit_pages ORDER BY exhibit_id ASC, sort_order ASC, created_at ASC';
+  if (table === 'exhibit_pages') return 'SELECT id, exhibit_id, name, background_theme, sort_order, created_at, updated_at FROM exhibit_pages ORDER BY exhibit_id ASC, sort_order ASC, created_at ASC';
   if (table === 'widgets') return 'SELECT id, exhibit_id, page_id, type, x, y, width, height, z_index, data, created_by, created_at, updated_at FROM widgets ORDER BY exhibit_id ASC, page_id ASC, z_index ASC, created_at ASC';
   return 'SELECT id, exhibit_id, target_user_id, role, created_by, created_at FROM shares ORDER BY created_at ASC';
 }
@@ -293,11 +294,13 @@ async function migratePostgresPages() {
       id TEXT PRIMARY KEY,
       exhibit_id TEXT NOT NULL REFERENCES exhibits(id) ON DELETE CASCADE,
       name TEXT NOT NULL DEFAULT 'Page 1',
+      background_theme TEXT NOT NULL DEFAULT 'default',
       sort_order INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await client.query("ALTER TABLE exhibit_pages ADD COLUMN IF NOT EXISTS background_theme TEXT NOT NULL DEFAULT 'default'");
   await client.query('ALTER TABLE widgets ADD COLUMN IF NOT EXISTS page_id TEXT REFERENCES exhibit_pages(id) ON DELETE CASCADE');
   await client.query('CREATE INDEX IF NOT EXISTS idx_pages_exhibit ON exhibit_pages(exhibit_id, sort_order)');
   await client.query('CREATE INDEX IF NOT EXISTS idx_widgets_page ON widgets(page_id)');
@@ -318,12 +321,17 @@ function migrateSqlitePages() {
       id TEXT PRIMARY KEY,
       exhibit_id TEXT NOT NULL REFERENCES exhibits(id) ON DELETE CASCADE,
       name TEXT NOT NULL DEFAULT 'Page 1',
+      background_theme TEXT NOT NULL DEFAULT 'default',
       sort_order INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_pages_exhibit ON exhibit_pages(exhibit_id, sort_order);
   `);
+
+  if (!sqliteColumnExists('exhibit_pages', 'background_theme')) {
+    client.exec("ALTER TABLE exhibit_pages ADD COLUMN background_theme TEXT NOT NULL DEFAULT 'default'");
+  }
 
   if (!sqliteColumnExists('widgets', 'page_id')) {
     client.exec('ALTER TABLE widgets ADD COLUMN page_id TEXT REFERENCES exhibit_pages(id) ON DELETE CASCADE');
