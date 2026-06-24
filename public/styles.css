@@ -383,6 +383,7 @@ select:focus {
   justify-content: flex-end;
   gap: 10px;
   pointer-events: none;
+  flex-wrap: wrap;
 }
 
 .studio-topbar > * {
@@ -400,6 +401,25 @@ select:focus {
 
 .cursor-settings-button {
   margin-right: auto;
+}
+
+.page-bar {
+  position: fixed;
+  z-index: 27;
+  top: 72px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+#pagePicker {
+  width: min(220px, 34vw);
+  min-height: 38px;
+  color: #fff;
+  background: rgba(5, 4, 6, 0.72);
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
 .role-pill {
@@ -477,6 +497,27 @@ select:focus {
   transform: none;
 }
 
+.read-mode .tool-menu,
+.read-mode .brush-panel,
+.read-mode .role-pill,
+.read-mode .share-button,
+.read-mode #logoutButton,
+.read-mode .page-bar .icon-button,
+.read-mode .widget-menu,
+.read-mode .move-handle,
+.read-mode .resize-handle {
+  display: none !important;
+}
+
+.read-mode .studio-topbar {
+  justify-content: flex-start;
+}
+
+.read-mode #exhibitPicker,
+.read-mode #cursorSettingsButton {
+  display: none;
+}
+
 .brush-panel {
   position: fixed;
   z-index: 27;
@@ -537,10 +578,47 @@ select:focus {
   accent-color: #050406;
 }
 
-.board {
+.board-viewport {
   position: absolute;
   inset: 0;
+  overflow: auto;
+  cursor: grab;
+  overscroll-behavior: contain;
+}
+
+.board-viewport.panning {
+  cursor: grabbing;
+}
+
+.board {
+  position: relative;
   overflow: hidden;
+  min-width: 5200px;
+  min-height: 3600px;
+  transform-origin: 0 0;
+}
+
+.zoom-controls {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 32;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(5, 4, 6, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  backdrop-filter: blur(16px);
+}
+
+.zoom-value {
+  min-width: 54px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .drag-preview {
@@ -603,8 +681,8 @@ select:focus {
   z-index: 2;
   min-width: 40px;
   min-height: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 8px;
+  border: var(--widget-border-width, 1px) solid var(--widget-border-color, rgba(255, 255, 255, 0.16));
+  border-radius: var(--widget-radius, 8px);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
   container-type: size;
   cursor: grab;
@@ -631,6 +709,7 @@ select:focus {
   display: block;
   background: var(--widget-bg, rgba(255, 255, 255, 0.82));
   border-radius: inherit;
+  clip-path: inherit;
   touch-action: none;
 }
 
@@ -648,6 +727,7 @@ select:focus {
   outline: none;
   overflow: auto;
   border-radius: inherit;
+  clip-path: inherit;
 }
 
 .external-controls .wordbox-content {
@@ -684,6 +764,7 @@ select:focus {
   background: rgba(var(--player-rgb, 27, 27, 29), var(--player-alpha, 0.88));
   color: var(--player-ink, #fff);
   border-radius: inherit;
+  clip-path: inherit;
   container-type: size;
   overflow: hidden;
   backdrop-filter: blur(16px);
@@ -1036,11 +1117,15 @@ select:focus {
 }
 
 .music-widget-menu {
-  width: 142px;
+  width: 166px;
+}
+
+.color-widget-menu {
+  width: 166px;
 }
 
 .wordbox-widget-menu {
-  width: 158px;
+  width: 190px;
 }
 
 .delete-widget-menu {
@@ -1113,7 +1198,7 @@ select:focus {
 .word-format-row {
   width: 100%;
   display: grid;
-  grid-template-columns: 22px 22px minmax(0, 92px);
+  grid-template-columns: 22px 22px minmax(0, 126px);
   gap: 5px;
   align-items: center;
 }
@@ -1133,7 +1218,7 @@ select:focus {
 }
 
 .word-size-control {
-  max-width: 92px;
+  max-width: 126px;
   height: 22px;
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
@@ -1159,12 +1244,96 @@ select:focus {
 .word-color-row {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 5px;
 }
 
 .word-color-swatch {
   width: 100%;
+}
+
+.border-control-row,
+.shape-control-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.border-width-control {
+  width: 100%;
+  height: 24px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 0 3px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(5, 4, 6, 0.72);
+  border-radius: 5px;
+}
+
+.border-width-control svg {
+  width: 14px;
+  height: 14px;
+}
+
+.border-width-control input {
+  width: 100%;
+  min-width: 0;
+  accent-color: #efd6e4;
+}
+
+.transparent-swatch {
+  background:
+    linear-gradient(45deg, transparent 44%, #ef314d 45% 55%, transparent 56%),
+    linear-gradient(45deg, rgba(255,255,255,0.74) 25%, rgba(0,0,0,0.18) 25% 50%, rgba(255,255,255,0.74) 50% 75%, rgba(0,0,0,0.18) 75%) !important;
+  background-size: 100% 100%, 8px 8px !important;
+}
+
+.shape-button {
+  width: 100%;
+  height: 24px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.72);
+  border: 0;
+  border-radius: 5px;
+  position: relative;
+}
+
+.shape-button::before {
+  position: absolute;
+  inset: 5px;
+  content: "";
+  background: #050406;
+}
+
+.shape-button.active {
+  outline: 2px solid rgba(255, 255, 255, 0.88);
+}
+
+.shape-rect::before {
+  border-radius: 2px;
+}
+
+.shape-round::before {
+  border-radius: 7px;
+}
+
+.shape-circle::before {
+  border-radius: 999px;
+}
+
+.shape-arch::before {
+  border-radius: 999px 999px 3px 3px;
+}
+
+.shape-diamond::before {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.shape-ticket::before {
+  border-radius: 9px 2px 9px 2px;
 }
 
 .move-handle {
@@ -1725,7 +1894,23 @@ select:focus {
   }
 
   #exhibitPicker {
-    width: min(210px, 42vw);
+    width: min(190px, 42vw);
+  }
+
+  .icon-button {
+    width: 38px;
+    height: 38px;
+  }
+
+  .page-bar {
+    top: 58px;
+    right: 10px;
+    left: 10px;
+    justify-content: flex-end;
+  }
+
+  #pagePicker {
+    width: min(180px, 52vw);
   }
 
   .role-pill {
@@ -1743,6 +1928,7 @@ select:focus {
     left: 10px;
     width: auto;
     grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding: 6px;
   }
 
   .tool-button {
@@ -1763,6 +1949,11 @@ select:focus {
     grid-template-columns: minmax(144px, auto) 1fr minmax(86px, 120px);
     align-items: center;
     gap: 8px;
+  }
+
+  .zoom-controls {
+    right: 10px;
+    bottom: 78px;
   }
 
   .utensils {

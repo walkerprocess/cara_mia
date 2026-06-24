@@ -58,6 +58,15 @@
         <button id="cursorSettingsButton" class="icon-button cursor-settings-button" type="button" title="Cursor" aria-label="Cursor settings">
           <i data-lucide="settings"></i>
         </button>
+        <button id="readModeButton" class="icon-button" type="button" title="View art" aria-label="View art only">
+          <i data-lucide="image"></i>
+        </button>
+        <button id="editModeButton" class="icon-button hidden" type="button" title="Edit" aria-label="Back to editing">
+          <i data-lucide="pencil"></i>
+        </button>
+        <button id="downloadShotButton" class="icon-button hidden" type="button" title="Download screenshot" aria-label="Download screenshot">
+          <i data-lucide="download"></i>
+        </button>
         <span id="rolePill" class="role-pill">OWNER</span>
         <button id="shareButton" class="share-button" type="button">SHARE</button>
         <button id="logoutButton" class="icon-button" type="button" title="Log out" aria-label="Log out">
@@ -99,9 +108,31 @@
         <input id="brushSize" class="brush-size" type="range" min="2" max="34" value="8" aria-label="Brush size" />
       </aside>
 
-      <section id="board" class="board" aria-label="Art exhibit canvas">
-        <div id="dragPreview" class="drag-preview hidden"></div>
+      <div class="page-bar" aria-label="Pages">
+        <select id="pagePicker" aria-label="Page"></select>
+        <button id="addPageButton" class="icon-button" type="button" title="Add page" aria-label="Add page">
+          <i data-lucide="plus"></i>
+        </button>
+        <button id="renamePageButton" class="icon-button" type="button" title="Rename page" aria-label="Rename page">
+          <i data-lucide="edit-3"></i>
+        </button>
+      </div>
+
+      <section id="boardViewport" class="board-viewport" aria-label="Art exhibit viewport">
+        <div id="board" class="board" aria-label="Art exhibit canvas">
+          <div id="dragPreview" class="drag-preview hidden"></div>
+        </div>
       </section>
+
+      <div class="zoom-controls" aria-label="Zoom">
+        <button id="zoomOutButton" class="icon-button" type="button" title="Zoom out" aria-label="Zoom out">
+          <i data-lucide="minus"></i>
+        </button>
+        <span id="zoomValue" class="zoom-value">100%</span>
+        <button id="zoomInButton" class="icon-button" type="button" title="Zoom in" aria-label="Zoom in">
+          <i data-lucide="plus"></i>
+        </button>
+      </div>
     </main>
 
     <dialog id="shareDialog" class="modal">
@@ -120,6 +151,18 @@
           </select>
         </label>
         <button class="primary-button" type="submit">Apply</button>
+      </form>
+    </dialog>
+
+    <dialog id="pageDialog" class="modal">
+      <form id="pageForm" method="dialog" class="modal-panel">
+        <button class="modal-close" value="cancel" type="button" aria-label="Close"><i data-lucide="x"></i></button>
+        <h2 id="pageDialogTitle">Page</h2>
+        <label>
+          <span>Name</span>
+          <input id="pageNameInput" name="name" maxlength="40" required />
+        </label>
+        <button class="primary-button" type="submit">Save</button>
       </form>
     </dialog>
 

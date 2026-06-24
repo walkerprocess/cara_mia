@@ -5,9 +5,11 @@ const express = require('express');
 const {
   all,
   ensureDefaultExhibit,
+  ensureDefaultPage,
   get,
   initDb,
   isPostgres,
+  normalizePage,
   normalizeWidget,
   publicUser,
   query,
@@ -44,6 +46,11 @@ function validEmail(email) {
 
 function validAccountId(accountId) {
   return /^[a-z0-9_.-]{3,32}$/.test(accountId);
+}
+
+function cleanPageName(value) {
+  const name = String(value || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return name || 'Untitled';
 }
 
 function clampNumber(value, fallback, min, max) {
@@ -372,7 +379,7 @@ async function getAccess(exhibitId, userId) {
   };
 }
 
-function exhibitPayload(access, widgets = []) {
+function exhibitPayload(access, widgets = [], pages = []) {
   return {
     id: access.exhibit.id,
     title: access.exhibit.title,
@@ -380,6 +387,7 @@ function exhibitPayload(access, widgets = []) {
     role: access.role,
     canEdit: access.canEdit,
     canShare: access.canShare,
+    pages: pages.map(normalizePage),
     widgets: widgets.map(normalizeWidget)
   };
 }
@@ -507,11 +515,16 @@ app.get('/api/exhibits/:id', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'This exhibit is not available.' });
     }
 
-    const widgets = await all(
-      'SELECT * FROM widgets WHERE exhibit_id = ? ORDER BY z_index ASC, created_at ASC',
+    await ensureDefaultPage(req.params.id);
+    const pages = await all(
+      'SELECT * FROM exhibit_pages WHERE exhibit_id = ? ORDER BY sort_order ASC, created_at ASC',
       [req.params.id]
     );
-    res.json({ exhibit: exhibitPayload(access, widgets) });
+    const widgets = await all(
+      'SELECT * FROM widgets WHERE exhibit_id = ? ORDER BY page_id ASC, z_index ASC, created_at ASC',
+      [req.params.id]
+    );
+    res.json({ exhibit: exhibitPayload(access, widgets, pages) });
   } catch (error) {
     next(error);
   }
@@ -581,6 +594,79 @@ app.post('/api/exhibits/:id/presence', requireAuth, async (req, res, next) => {
   }
 });
 
+async function pagesForExhibit(exhibitId) {
+  await ensureDefaultPage(exhibitId);
+  return all(
+    'SELECT * FROM exhibit_pages WHERE exhibit_id = ? ORDER BY sort_order ASC, created_at ASC',
+    [exhibitId]
+  );
+}
+
+app.post('/api/exhibits/:id/pages', requireAuth, async (req, res, next) => {
+  try {
+    const access = await getAccess(req.params.id, req.user.id);
+    if (!access || !access.canEdit) {
+      return res.status(403).json({ error: 'Only collaborators can change pages.' });
+    }
+
+    const maxRow = await get('SELECT MAX(sort_order) AS max_order FROM exhibit_pages WHERE exhibit_id = ?', [req.params.id]);
+    const page = {
+      id: randomUUID(),
+      name: cleanPageName(req.body.name || `Page ${Number(maxRow?.max_order || 0) + 1}`),
+      sortOrder: Number(maxRow?.max_order || 0) + 1
+    };
+
+    await query(
+      'INSERT INTO exhibit_pages (id, exhibit_id, name, sort_order) VALUES (?, ?, ?, ?)',
+      [page.id, req.params.id, page.name, page.sortOrder]
+    );
+    await query('UPDATE exhibits SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [req.params.id]);
+    scheduleDatabaseExport();
+
+    const pages = (await pagesForExhibit(req.params.id)).map(normalizePage);
+    broadcastExhibitEvent(req.params.id, 'pages-updated', {
+      sourceClientId: cleanClientId(req.get('x-cara-mia-client-id')),
+      pages
+    });
+    res.status(201).json({ page: pages.find((item) => item.id === page.id), pages });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/exhibits/:id/pages/:pageId', requireAuth, async (req, res, next) => {
+  try {
+    const access = await getAccess(req.params.id, req.user.id);
+    if (!access || !access.canEdit) {
+      return res.status(403).json({ error: 'Only collaborators can change pages.' });
+    }
+
+    const existing = await get(
+      'SELECT * FROM exhibit_pages WHERE id = ? AND exhibit_id = ?',
+      [req.params.pageId, req.params.id]
+    );
+    if (!existing) {
+      return res.status(404).json({ error: 'Page not found.' });
+    }
+
+    await query(
+      'UPDATE exhibit_pages SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [cleanPageName(req.body.name), req.params.pageId]
+    );
+    await query('UPDATE exhibits SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [req.params.id]);
+    scheduleDatabaseExport();
+
+    const pages = (await pagesForExhibit(req.params.id)).map(normalizePage);
+    broadcastExhibitEvent(req.params.id, 'pages-updated', {
+      sourceClientId: cleanClientId(req.get('x-cara-mia-client-id')),
+      pages
+    });
+    res.json({ page: pages.find((item) => item.id === req.params.pageId), pages });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/widgets', requireAuth, async (req, res, next) => {
   try {
     const exhibitId = String(req.body.exhibitId || '');
@@ -594,10 +680,21 @@ app.post('/api/widgets', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Choose a valid widget.' });
     }
 
+    const defaultPage = await ensureDefaultPage(exhibitId);
+    const requestedPageId = String(req.body.pageId || req.body.page_id || defaultPage.id);
+    const page = await get(
+      'SELECT id FROM exhibit_pages WHERE id = ? AND exhibit_id = ?',
+      [requestedPageId, exhibitId]
+    );
+    if (!page) {
+      return res.status(400).json({ error: 'Choose a valid page.' });
+    }
+
     const maxRow = await get('SELECT MAX(z_index) AS max_z FROM widgets WHERE exhibit_id = ?', [exhibitId]);
     const widget = {
       id: randomUUID(),
       exhibitId,
+      pageId: page.id,
       type,
       x: clampNumber(req.body.x, 120, -10000, 10000),
       y: clampNumber(req.body.y, 120, -10000, 10000),
@@ -608,11 +705,12 @@ app.post('/api/widgets', requireAuth, async (req, res, next) => {
     };
 
     await query(
-      `INSERT INTO widgets (id, exhibit_id, type, x, y, width, height, z_index, data, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO widgets (id, exhibit_id, page_id, type, x, y, width, height, z_index, data, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         widget.id,
         widget.exhibitId,
+        widget.pageId,
         widget.type,
         widget.x,
         widget.y,
@@ -651,7 +749,21 @@ app.patch('/api/widgets/:id', requireAuth, async (req, res, next) => {
     }
 
     const current = normalizeWidget(existing);
+    let pageId = current.page_id;
+    if (req.body.pageId !== undefined || req.body.page_id !== undefined) {
+      const requestedPageId = String(req.body.pageId || req.body.page_id || '');
+      const page = await get(
+        'SELECT id FROM exhibit_pages WHERE id = ? AND exhibit_id = ?',
+        [requestedPageId, existing.exhibit_id]
+      );
+      if (!page) {
+        return res.status(400).json({ error: 'Choose a valid page.' });
+      }
+      pageId = page.id;
+    }
+
     const nextWidget = {
+      pageId,
       x: clampNumber(req.body.x, current.x, -10000, 10000),
       y: clampNumber(req.body.y, current.y, -10000, 10000),
       width: clampNumber(req.body.width, current.width, 40, 3000),
@@ -662,9 +774,9 @@ app.patch('/api/widgets/:id', requireAuth, async (req, res, next) => {
 
     await query(
       `UPDATE widgets
-       SET x = ?, y = ?, width = ?, height = ?, z_index = ?, data = ?, updated_at = CURRENT_TIMESTAMP
+       SET page_id = ?, x = ?, y = ?, width = ?, height = ?, z_index = ?, data = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [nextWidget.x, nextWidget.y, nextWidget.width, nextWidget.height, nextWidget.zIndex, nextWidget.data, req.params.id]
+      [nextWidget.pageId, nextWidget.x, nextWidget.y, nextWidget.width, nextWidget.height, nextWidget.zIndex, nextWidget.data, req.params.id]
     );
     await query('UPDATE exhibits SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [existing.exhibit_id]);
 

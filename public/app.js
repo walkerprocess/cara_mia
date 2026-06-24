@@ -70,6 +70,15 @@ const musicPlayerColors = [
   '#24103d',
   '#2f80ed'
 ];
+const borderColors = ['transparent', '#050406', '#ffffff', '#d8d2d7', '#7d38ff', '#ef314d', '#ffc857', '#2de2e6'];
+const widgetShapes = [
+  { id: 'rect', label: 'Square', radius: '8px' },
+  { id: 'round', label: 'Round', radius: '24px' },
+  { id: 'circle', label: 'Circle', radius: '999px' },
+  { id: 'arch', label: 'Arch', radius: '999px 999px 18px 18px' },
+  { id: 'diamond', label: 'Diamond', radius: '8px', clip: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)' },
+  { id: 'ticket', label: 'Ticket', radius: '34px 8px 34px 8px' }
+];
 const wordFonts = [
   { label: 'Bricolage', value: '"Bricolage Grotesque", Arial, sans-serif' },
   { label: 'Georgia', value: 'Georgia, serif' },
@@ -98,12 +107,20 @@ const backgroundPresets = [
 ];
 const cursorColors = ['#7d38ff', '#ef314d', '#f1bfd4', '#2de2e6', '#5dff9b', '#ffc857', '#ffffff', '#050406'];
 const randomCursorColor = cursorColors[Math.floor(Math.random() * cursorColors.length)];
+const boardSize = { width: 5200, height: 3600 };
+const zoomLimits = { min: 0.35, max: 2.25, step: 0.1 };
 
 const state = {
   user: null,
   exhibits: [],
   exhibit: null,
   selectedTool: null,
+  activePageId: null,
+  viewMode: 'edit',
+  viewport: {
+    zoom: 1,
+    panning: null
+  },
   brush: {
     utensil: 'brush',
     color: '#050406',
@@ -116,6 +133,7 @@ const state = {
   pendingMusic: null,
   pendingPresentation: 'cover',
   pendingAssetType: 'sticker',
+  pendingPageAction: null,
   drawingFrame: null,
   pendingDrawPoint: null,
   liveEvents: null,
@@ -138,18 +156,32 @@ const signupForm = $('#signupForm');
 const showSignupButton = $('#showSignupButton');
 const showLoginButton = $('#showLoginButton');
 const board = $('#board');
+const boardViewport = $('#boardViewport');
 const dragPreview = $('#dragPreview');
 const exhibitPicker = $('#exhibitPicker');
 const cursorSettingsButton = $('#cursorSettingsButton');
+const readModeButton = $('#readModeButton');
+const editModeButton = $('#editModeButton');
+const downloadShotButton = $('#downloadShotButton');
 const rolePill = $('#rolePill');
 const shareButton = $('#shareButton');
 const logoutButton = $('#logoutButton');
+const pagePicker = $('#pagePicker');
+const addPageButton = $('#addPageButton');
+const renamePageButton = $('#renamePageButton');
+const zoomOutButton = $('#zoomOutButton');
+const zoomInButton = $('#zoomInButton');
+const zoomValue = $('#zoomValue');
 const brushPanel = $('#brushPanel');
 const brushSize = $('#brushSize');
 const colorRail = $('#colorRail');
 const toast = $('#toast');
 const shareDialog = $('#shareDialog');
 const shareForm = $('#shareForm');
+const pageDialog = $('#pageDialog');
+const pageForm = $('#pageForm');
+const pageDialogTitle = $('#pageDialogTitle');
+const pageNameInput = $('#pageNameInput');
 const cursorDialog = $('#cursorDialog');
 const cursorPreview = $('#cursorPreview');
 const cursorColorInput = $('#cursorColorInput');
@@ -415,12 +447,12 @@ function createHearts() {
     'rgba(205, 196, 210, 0.1)'
   ];
 
-  for (let index = 0; index < 30; index += 1) {
+  for (let index = 0; index < 18; index += 1) {
     const heart = document.createElement('span');
     heart.className = 'heart';
     heart.style.zIndex = String(30 - index);
-    heart.style.setProperty('--duration', `${22 + (index % 6) * 1.6}s`);
-    heart.style.setProperty('--delay', `${index * -0.92}s`);
+    heart.style.setProperty('--duration', `${30 + (index % 6) * 2.2}s`);
+    heart.style.setProperty('--delay', `${index * -1.4}s`);
     heart.style.setProperty('--start-scale', `${0.06 + (index % 4) * 0.015}`);
     heart.style.setProperty('--end-scale', `${4.6 + (index % 8) * 0.42}`);
     heart.style.setProperty('--blur', `${index % 9 === 8 ? 1.4 : 0}px`);
@@ -447,7 +479,74 @@ function showSignup() {
 }
 
 function canEdit() {
-  return Boolean(state.exhibit?.canEdit);
+  return state.viewMode === 'edit' && Boolean(state.exhibit?.canEdit);
+}
+
+function activePage() {
+  return state.exhibit?.pages?.find((page) => page.id === state.activePageId) || state.exhibit?.pages?.[0] || null;
+}
+
+function setViewMode(mode) {
+  state.viewMode = mode === 'read' ? 'read' : 'edit';
+  document.body.classList.toggle('read-mode', state.viewMode === 'read');
+  readModeButton.classList.toggle('hidden', state.viewMode === 'read');
+  editModeButton.classList.toggle('hidden', state.viewMode !== 'read');
+  downloadShotButton.classList.toggle('hidden', state.viewMode !== 'read');
+  if (state.viewMode === 'read') {
+    selectTool(null);
+    clearWidgetSelection();
+  }
+  setControlsForRole();
+  renderBoard();
+}
+
+function renderPagePicker() {
+  pagePicker.innerHTML = '';
+  const pages = state.exhibit?.pages?.length ? state.exhibit.pages : [];
+  pages.forEach((page) => {
+    const option = document.createElement('option');
+    option.value = page.id;
+    option.textContent = page.name;
+    pagePicker.appendChild(option);
+  });
+
+  if (!pages.some((page) => page.id === state.activePageId)) {
+    state.activePageId = pages[0]?.id || null;
+  }
+  if (state.activePageId) pagePicker.value = state.activePageId;
+  pagePicker.disabled = !pages.length;
+  addPageButton.disabled = !canEdit();
+  renamePageButton.disabled = !canEdit() || !state.activePageId;
+}
+
+function setActivePage(pageId) {
+  if (!state.exhibit?.pages?.some((page) => page.id === pageId)) return;
+  state.activePageId = pageId;
+  localStorage.setItem(`caraMiaPage:${state.exhibit.id}`, pageId);
+  renderPagePicker();
+  clearWidgetSelection();
+  renderBoard();
+}
+
+function applyZoom(anchor = null) {
+  const zoom = state.viewport.zoom;
+  board.style.width = `${boardSize.width}px`;
+  board.style.height = `${boardSize.height}px`;
+  board.style.transform = `scale(${zoom})`;
+  zoomValue.textContent = `${Math.round(zoom * 100)}%`;
+
+  if (anchor) {
+    const beforeX = (boardViewport.scrollLeft + anchor.x) / anchor.previousZoom;
+    const beforeY = (boardViewport.scrollTop + anchor.y) / anchor.previousZoom;
+    boardViewport.scrollLeft = beforeX * zoom - anchor.x;
+    boardViewport.scrollTop = beforeY * zoom - anchor.y;
+  }
+}
+
+function setZoom(nextZoom, anchorPoint = null) {
+  const previousZoom = state.viewport.zoom;
+  state.viewport.zoom = Math.round(clamp(nextZoom, zoomLimits.min, zoomLimits.max) * 100) / 100;
+  applyZoom(anchorPoint ? { ...anchorPoint, previousZoom } : null);
 }
 
 function selectTool(tool) {
@@ -469,6 +568,9 @@ function setControlsForRole() {
     button.disabled = !editable;
   });
   shareButton.disabled = !state.exhibit?.canShare;
+  pagePicker.disabled = !state.exhibit?.pages?.length;
+  addPageButton.disabled = !editable;
+  renamePageButton.disabled = !editable || !state.activePageId;
   rolePill.textContent = (state.exhibit?.role || 'viewer').toUpperCase();
   if (!editable) {
     selectTool(null);
@@ -544,6 +646,18 @@ function setWordVisualVars(target, data = {}) {
   target.style.setProperty('--word-style', data.italic ? 'italic' : 'normal');
 }
 
+function shapeConfig(data = {}) {
+  return widgetShapes.find((shape) => shape.id === data.shape) || widgetShapes[0];
+}
+
+function setWidgetVisualVars(target, data = {}) {
+  const shape = shapeConfig(data);
+  target.style.setProperty('--widget-radius', shape.radius);
+  target.style.setProperty('--widget-clip', shape.clip || 'none');
+  target.style.setProperty('--widget-border-color', data.borderColor || 'rgba(255,255,255,0.16)');
+  target.style.setProperty('--widget-border-width', `${Number(data.borderWidth ?? 1)}px`);
+}
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const minutes = Math.floor(seconds / 60);
@@ -602,8 +716,8 @@ function setMusicPresentation(presentation) {
 function boardPoint(event) {
   const rect = board.getBoundingClientRect();
   return {
-    x: event.clientX - rect.left,
-    y: event.clientY - rect.top
+    x: (event.clientX - rect.left) / state.viewport.zoom,
+    y: (event.clientY - rect.top) / state.viewport.zoom
   };
 }
 
@@ -632,6 +746,7 @@ function clearDragPreview() {
 async function createWidget(type, rect, data = {}) {
   const payload = {
     exhibitId: state.exhibit.id,
+    pageId: state.activePageId || activePage()?.id,
     type,
     x: Math.round(rect.x),
     y: Math.round(rect.y),
@@ -670,6 +785,7 @@ function scheduleWidgetSave(widget, patch = {}, delay = 450) {
             width: widget.width,
             height: widget.height,
             zIndex: widget.z_index,
+            pageId: widget.page_id || state.activePageId,
             data: widget.data
           })
         });
@@ -766,6 +882,66 @@ function appendWordboxControls(menu, widget, element, data) {
   menu.appendChild(colorRow);
 }
 
+function appendBorderControls(menu, widget, element) {
+  const borderRow = document.createElement('div');
+  borderRow.className = 'border-control-row';
+  borderColors.forEach((color) => {
+    const swatch = document.createElement('button');
+    swatch.className = `mini-swatch border-swatch ${color === 'transparent' ? 'transparent-swatch' : ''}`.trim();
+    swatch.type = 'button';
+    swatch.title = color === 'transparent' ? 'No border' : 'Border color';
+    swatch.style.background = color;
+    swatch.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const nextData = { ...widgetData(widget), borderColor: color, borderWidth: color === 'transparent' ? 0 : (widgetData(widget).borderWidth || 2) };
+      scheduleWidgetSave(widget, { data: nextData }, 120);
+      setWidgetVisualVars(element, nextData);
+    });
+    borderRow.appendChild(swatch);
+  });
+  menu.appendChild(borderRow);
+
+  const widthControl = document.createElement('label');
+  widthControl.className = 'border-width-control';
+  widthControl.title = 'Border width';
+  widthControl.innerHTML = '<i data-lucide="panel-top"></i>';
+  const widthInput = document.createElement('input');
+  widthInput.type = 'range';
+  widthInput.min = '0';
+  widthInput.max = '14';
+  widthInput.value = String(Number(widgetData(widget).borderWidth ?? 1));
+  widthInput.setAttribute('aria-label', 'Border width');
+  widthInput.addEventListener('input', (event) => {
+    event.stopPropagation();
+    const nextData = { ...widgetData(widget), borderWidth: Number(widthInput.value) };
+    scheduleWidgetSave(widget, { data: nextData }, 120);
+    setWidgetVisualVars(element, nextData);
+  });
+  widthControl.appendChild(widthInput);
+  menu.appendChild(widthControl);
+}
+
+function appendShapeControls(menu, widget, element) {
+  const shapeRow = document.createElement('div');
+  shapeRow.className = 'shape-control-row';
+  widgetShapes.forEach((shape) => {
+    const button = document.createElement('button');
+    button.className = `shape-button shape-${shape.id}`;
+    button.type = 'button';
+    button.title = shape.label;
+    button.classList.toggle('active', shapeConfig(widgetData(widget)).id === shape.id);
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const nextData = { ...widgetData(widget), shape: shape.id };
+      scheduleWidgetSave(widget, { data: nextData }, 120);
+      setWidgetVisualVars(element, nextData);
+      $$('.shape-button', shapeRow).forEach((item) => item.classList.toggle('active', item === button));
+    });
+    shapeRow.appendChild(button);
+  });
+  menu.appendChild(shapeRow);
+}
+
 function widgetShell(widget) {
   const data = widgetData(widget);
   const element = document.createElement('article');
@@ -780,6 +956,7 @@ function widgetShell(widget) {
   element.style.height = `${widget.height}px`;
   element.style.zIndex = widget.z_index;
   element.style.setProperty('--widget-bg', data.background || 'rgba(255,255,255,0.84)');
+  setWidgetVisualVars(element, data);
   setWordVisualVars(element, data);
   setMusicVisualVars(element, data);
 
@@ -864,6 +1041,11 @@ function widgetShell(widget) {
         });
         opacityControl.appendChild(opacityInput);
         menu.appendChild(opacityControl);
+      }
+
+      appendBorderControls(menu, widget, element);
+      if (widget.type === 'canvas' || widget.type === 'wordbox') {
+        appendShapeControls(menu, widget, element);
       }
 
       if (widget.type === 'wordbox') {
@@ -1007,8 +1189,8 @@ function resizeWidget(event) {
   const { widget, element, startX, startY, originalWidth, originalHeight, aspectRatio, keepRatio } = state.resizing;
   const minWidth = ['music', 'sticker', 'gif'].includes(widget.type) ? 84 : 48;
   const minHeight = widget.type === 'music' ? 84 : ['sticker', 'gif'].includes(widget.type) ? 72 : 48;
-  let width = Math.max(minWidth, originalWidth + event.clientX - startX);
-  let height = Math.max(minHeight, originalHeight + event.clientY - startY);
+  let width = Math.max(minWidth, originalWidth + (event.clientX - startX) / state.viewport.zoom);
+  let height = Math.max(minHeight, originalHeight + (event.clientY - startY) / state.viewport.zoom);
 
   if (keepRatio) {
     if (Math.abs(event.clientY - startY) > Math.abs(event.clientX - startX)) {
@@ -1046,6 +1228,8 @@ function syncCanvasBackingStore(widget, element) {
 
   canvas.width = nextWidth;
   canvas.height = nextHeight;
+  canvas.dataset.logicalWidth = String(widget.width);
+  canvas.dataset.logicalHeight = String(widget.height);
 
   const context = canvas.getContext('2d');
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1082,6 +1266,8 @@ function renderCanvasWidget(widget) {
   const data = widgetData(widget);
   const element = widgetShell(widget);
   const canvas = document.createElement('canvas');
+  canvas.dataset.logicalWidth = String(widget.width);
+  canvas.dataset.logicalHeight = String(widget.height);
   element.appendChild(canvas);
 
   const dpr = window.devicePixelRatio || 1;
@@ -1132,9 +1318,8 @@ function colorsMatch(data, index, target, tolerance = 22) {
 }
 
 function floodFill(canvas, context, point) {
-  const rect = canvas.getBoundingClientRect();
-  const x = Math.floor(point.x * (canvas.width / rect.width));
-  const y = Math.floor(point.y * (canvas.height / rect.height));
+  const x = Math.floor(point.x * (canvas.width / Number(canvas.dataset.logicalWidth || canvas.width)));
+  const y = Math.floor(point.y * (canvas.height / Number(canvas.dataset.logicalHeight || canvas.height)));
   if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return false;
 
   const image = context.getImageData(0, 0, canvas.width, canvas.height);
@@ -1277,8 +1462,8 @@ function wireDrawing(canvas, context, widget) {
   const pointFor = (event) => {
     const rect = canvas.getBoundingClientRect();
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
+      x: (event.clientX - rect.left) * (widget.width / rect.width),
+      y: (event.clientY - rect.top) * (widget.height / rect.height)
     };
   };
 
@@ -1578,14 +1763,20 @@ function renderBoard() {
   $$('.art-widget', board).forEach((widget) => widget.remove());
 
   if (!state.exhibit) return;
-  state.exhibit.widgets.forEach((widget) => {
+  renderPagePicker();
+  const pageId = state.activePageId || activePage()?.id;
+  const fragment = document.createDocumentFragment();
+  state.exhibit.widgets
+    .filter((widget) => (widget.page_id || pageId) === pageId)
+    .forEach((widget) => {
     let element;
     if (widget.type === 'canvas') element = renderCanvasWidget(widget);
     if (widget.type === 'wordbox') element = renderWordboxWidget(widget);
     if (widget.type === 'music') element = renderMusicWidget(widget);
     if (widget.type === 'sticker' || widget.type === 'gif') element = renderAssetWidget(widget);
-    if (element) board.appendChild(element);
+    if (element) fragment.appendChild(element);
   });
+  board.appendChild(fragment);
 
   setControlsForRole();
   refreshIcons();
@@ -1613,6 +1804,16 @@ function removeRemoteWidget(widgetId) {
   renderBoard();
 }
 
+function applyRemotePages(pages = []) {
+  if (!state.exhibit) return;
+  state.exhibit.pages = pages;
+  if (!pages.some((page) => page.id === state.activePageId)) {
+    state.activePageId = pages[0]?.id || null;
+  }
+  renderPagePicker();
+  renderBoard();
+}
+
 function closeLiveEvents() {
   if (state.liveRetryTimer) {
     window.clearTimeout(state.liveRetryTimer);
@@ -1637,6 +1838,9 @@ function handleLiveMessage(event) {
     if (event.type === 'widget-deleted') {
       removeRemoteWidget(payload.widgetId);
     }
+    if (event.type === 'pages-updated') {
+      applyRemotePages(payload.pages);
+    }
     if (event.type === 'cursor-updated') {
       handleCursorUpdate(payload);
     }
@@ -1657,7 +1861,7 @@ function openLiveEvents(exhibitId) {
   const events = new EventSource(`/api/exhibits/${encodeURIComponent(exhibitId)}/events?clientId=${encodeURIComponent(clientId)}`);
   state.liveEvents = events;
 
-  ['widget-created', 'widget-updated', 'widget-deleted', 'cursor-updated', 'cursor-left'].forEach((eventName) => {
+  ['widget-created', 'widget-updated', 'widget-deleted', 'pages-updated', 'cursor-updated', 'cursor-left'].forEach((eventName) => {
     events.addEventListener(eventName, handleLiveMessage);
   });
 
@@ -1701,7 +1905,12 @@ async function loadExhibit(id) {
   const { exhibit } = await api(`/api/exhibits/${id}`);
   removeRemoteCursors();
   state.exhibit = exhibit;
+  const savedPageId = localStorage.getItem(`caraMiaPage:${id}`);
+  state.activePageId = exhibit.pages?.some((page) => page.id === savedPageId)
+    ? savedPageId
+    : exhibit.pages?.[0]?.id || null;
   localStorage.setItem('caraMiaExhibitId', id);
+  applyZoom();
   renderBoard();
   openLiveEvents(id);
 }
@@ -1774,12 +1983,7 @@ async function createAssetWidget(asset) {
   const type = 'sticker';
   const width = asset.assetType === 'gif' ? 230 : 180;
   const height = asset.assetType === 'gif' ? 180 : 180;
-  const rect = {
-    x: Math.round(Math.max(120, board.clientWidth / 2 - width / 2)),
-    y: Math.round(Math.max(100, board.clientHeight / 2 - height / 2)),
-    width,
-    height
-  };
+  const rect = centeredRect(width, height);
 
   await createWidget(type, rect, {
     title: asset.title || assetLabel(type),
@@ -1789,6 +1993,76 @@ async function createAssetWidget(asset) {
   });
   assetDialog.close();
   assetResults.innerHTML = '';
+}
+
+function centeredRect(width, height) {
+  return {
+    x: Math.round(Math.max(40, (boardViewport.scrollLeft + boardViewport.clientWidth / 2) / state.viewport.zoom - width / 2)),
+    y: Math.round(Math.max(40, (boardViewport.scrollTop + boardViewport.clientHeight / 2) / state.viewport.zoom - height / 2)),
+    width,
+    height
+  };
+}
+
+function updateReadModeButtons() {
+  readModeButton.classList.toggle('hidden', state.viewMode === 'read');
+  editModeButton.classList.toggle('hidden', state.viewMode !== 'read');
+  downloadShotButton.classList.toggle('hidden', state.viewMode !== 'read');
+}
+
+function loadScreenshotLibrary() {
+  if (window.html2canvas) return Promise.resolve(window.html2canvas);
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-html2canvas]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(window.html2canvas), { once: true });
+      existing.addEventListener('error', reject, { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+    script.async = true;
+    script.dataset.html2canvas = 'true';
+    script.onload = () => resolve(window.html2canvas);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+async function downloadScreenshot() {
+  const previousMode = state.viewMode;
+  setViewMode('read');
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  try {
+    const html2canvas = await loadScreenshotLibrary();
+    const canvas = await html2canvas(boardViewport, {
+      backgroundColor: null,
+      scale: Math.min(2, window.devicePixelRatio || 1),
+      useCORS: true,
+      ignoreElements: (element) => element.classList?.contains('remote-cursor')
+    });
+    const link = document.createElement('a');
+    link.download = `${activePage()?.name || 'cara-mia'}-${new Date().toISOString().slice(0, 10)}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  } catch {
+    showToast('Screenshot could not be downloaded.');
+  } finally {
+    if (previousMode !== 'read') setViewMode(previousMode);
+  }
+}
+
+function openPageDialog(action) {
+  if (!canEdit() || !state.exhibit) return;
+  state.pendingPageAction = action;
+  const current = activePage();
+  pageDialogTitle.textContent = action === 'rename' ? 'Rename page' : 'Add page';
+  pageNameInput.value = action === 'rename'
+    ? current?.name || 'Untitled'
+    : `Page ${(state.exhibit.pages?.length || 0) + 1}`;
+  pageDialog.showModal();
+  pageNameInput.focus();
+  pageNameInput.select();
 }
 
 loginForm.addEventListener('submit', async (event) => {
@@ -1851,6 +2125,23 @@ cursorSettingsButton.addEventListener('click', () => {
   renderBackgroundPresets();
   cursorDialog.showModal();
 });
+
+readModeButton.addEventListener('click', () => setViewMode('read'));
+editModeButton.addEventListener('click', () => setViewMode('edit'));
+downloadShotButton.addEventListener('click', () => downloadScreenshot());
+
+pagePicker.addEventListener('change', () => setActivePage(pagePicker.value));
+addPageButton.addEventListener('click', () => openPageDialog('add'));
+renamePageButton.addEventListener('click', () => openPageDialog('rename'));
+
+zoomOutButton.addEventListener('click', () => setZoom(state.viewport.zoom - zoomLimits.step, {
+  x: boardViewport.clientWidth / 2,
+  y: boardViewport.clientHeight / 2
+}));
+zoomInButton.addEventListener('click', () => setZoom(state.viewport.zoom + zoomLimits.step, {
+  x: boardViewport.clientWidth / 2,
+  y: boardViewport.clientHeight / 2
+}));
 
 cursorColorInput.addEventListener('input', () => {
   state.cursorProfile.color = cursorColorInput.value;
@@ -1920,6 +2211,36 @@ brushSize.addEventListener('input', () => {
   state.brush.size = Number(brushSize.value);
 });
 
+boardViewport.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0 || event.target !== board || ['canvas', 'wordbox'].includes(state.selectedTool)) return;
+  clearWidgetSelection();
+  state.viewport.panning = {
+    startX: event.clientX,
+    startY: event.clientY,
+    scrollLeft: boardViewport.scrollLeft,
+    scrollTop: boardViewport.scrollTop
+  };
+  boardViewport.classList.add('panning');
+  boardViewport.setPointerCapture(event.pointerId);
+});
+
+boardViewport.addEventListener('pointermove', (event) => {
+  if (!state.viewport.panning) return;
+  event.preventDefault();
+  const dx = event.clientX - state.viewport.panning.startX;
+  const dy = event.clientY - state.viewport.panning.startY;
+  boardViewport.scrollLeft = state.viewport.panning.scrollLeft - dx;
+  boardViewport.scrollTop = state.viewport.panning.scrollTop - dy;
+});
+
+function stopBoardPan() {
+  state.viewport.panning = null;
+  boardViewport.classList.remove('panning');
+}
+
+boardViewport.addEventListener('pointerup', stopBoardPan);
+boardViewport.addEventListener('pointercancel', stopBoardPan);
+
 board.addEventListener('pointerdown', (event) => {
   if (!canEdit()) return;
   if (!event.target.closest('.art-widget')) {
@@ -1984,6 +2305,34 @@ shareForm.addEventListener('submit', async (event) => {
   }
 });
 
+pageForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!canEdit() || !state.exhibit) return;
+  const name = pageNameInput.value.trim();
+  try {
+    if (state.pendingPageAction === 'rename' && state.activePageId) {
+      const { pages } = await api(`/api/exhibits/${state.exhibit.id}/pages/${state.activePageId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name })
+      });
+      state.exhibit.pages = pages;
+      renderPagePicker();
+    } else {
+      const { page, pages } = await api(`/api/exhibits/${state.exhibit.id}/pages`, {
+        method: 'POST',
+        body: JSON.stringify({ name })
+      });
+      state.exhibit.pages = pages;
+      setActivePage(page.id);
+    }
+    state.pendingPageAction = null;
+    pageForm.reset();
+    pageDialog.close();
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
 musicSearchForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   musicResults.innerHTML = '';
@@ -2040,12 +2389,7 @@ applyMusicButton.addEventListener('click', async () => {
   }
 
   const presentation = state.pendingPresentation;
-  const rect = {
-    x: Math.round(Math.max(120, board.clientWidth / 2 - (presentation === 'cover' ? 150 : 260))),
-    y: Math.round(Math.max(100, board.clientHeight / 2 - (presentation === 'cover' ? 175 : 110))),
-    width: presentation === 'cover' ? 300 : 520,
-    height: presentation === 'cover' ? 350 : 220
-  };
+  const rect = centeredRect(presentation === 'cover' ? 300 : 520, presentation === 'cover' ? 350 : 220);
 
   try {
     await createWidget('music', rect, {
