@@ -127,6 +127,9 @@ const cursorColors = ['#7d38ff', '#ef314d', '#f1bfd4', '#2de2e6', '#5dff9b', '#f
 const randomCursorColor = cursorColors[Math.floor(Math.random() * cursorColors.length)];
 const boardSize = { width: 5200, height: 3600 };
 const zoomLimits = { min: 0.35, max: 2.25, step: 0.1 };
+const cursorPresenceInterval = 150;
+const cursorPresenceMinDistance = 6;
+const gothicFlowFrameMs = 42;
 
 const state = {
   user: null,
@@ -159,8 +162,16 @@ const state = {
   liveRetryTimer: null,
   cursorProfile: loadCursorProfile(),
   cursorPeers: new Map(),
+  cursorNodes: new Map(),
   cursorSendTimer: null,
   pendingCursorPoint: null,
+  cursorLastSentPoint: null,
+  cursorLastSentAt: 0,
+  pendingLocalCursorPoint: null,
+  localCursorFrame: null,
+  localCursorKey: '',
+  boardRect: null,
+  gothicLastFrame: 0,
   saveTimers: new Map(),
   controlTimers: new WeakMap()
 };
@@ -301,64 +312,134 @@ function localCursorMarkup() {
     : '<span class="remote-cursor-arrow"></span>';
 }
 
-function renderLocalCursor(point = null) {
+function localCursorKey() {
+  return [
+    state.cursorProfile.color,
+    state.cursorProfile.cursorImage,
+    state.user?.accountId || 'you'
+  ].join('|');
+}
+
+function ensureLocalCursorContents() {
   if (!localCursor) return;
+  const nextKey = localCursorKey();
+  if (state.localCursorKey === nextKey) return;
+  state.localCursorKey = nextKey;
   localCursor.style.setProperty('--cursor-color', state.cursorProfile.color);
   localCursor.classList.toggle('image-cursor', Boolean(state.cursorProfile.cursorImage));
   localCursor.classList.toggle('arrow-cursor', !state.cursorProfile.cursorImage);
   localCursor.innerHTML = `${localCursorMarkup()}<strong>${state.user?.accountId || 'you'}</strong>`;
-  if (point) {
-    localCursor.style.left = `${point.x}px`;
-    localCursor.style.top = `${point.y}px`;
-    localCursor.classList.remove('hidden');
+}
+
+function moveLocalCursor(point) {
+  if (!localCursor) return;
+  localCursor.style.transform = `translate3d(${point.x}px, ${point.y}px, 0)`;
+  localCursor.classList.remove('hidden');
+}
+
+function renderLocalCursor(point = null) {
+  if (!localCursor) return;
+  ensureLocalCursorContents();
+  if (!point) return;
+
+  state.pendingLocalCursorPoint = point;
+  if (state.localCursorFrame) return;
+  state.localCursorFrame = window.requestAnimationFrame(() => {
+    state.localCursorFrame = null;
+    if (state.pendingLocalCursorPoint) {
+      moveLocalCursor(state.pendingLocalCursorPoint);
+      state.pendingLocalCursorPoint = null;
+    }
+  });
+}
+
+function cursorNodeKey(peer) {
+  return [
+    peer.cursorKind || '',
+    peer.cursorImage || '',
+    peer.color || '',
+    peer.accountId || ''
+  ].join('|');
+}
+
+function renderRemoteCursor(id, peer) {
+  if (!state.exhibit || peer.exhibitId !== state.exhibit.id) return;
+  let cursor = state.cursorNodes.get(id);
+  if (!cursor) {
+    cursor = document.createElement('div');
+    state.cursorNodes.set(id, cursor);
+    board.appendChild(cursor);
   }
+
+  const nextKey = cursorNodeKey(peer);
+  if (cursor.dataset.cursorKey !== nextKey) {
+    cursor.dataset.cursorKey = nextKey;
+    cursor.className = `remote-cursor ${peer.cursorKind === 'image' ? 'image-cursor' : 'arrow-cursor'}`;
+    cursor.style.setProperty('--cursor-color', peer.color || '#7d38ff');
+    cursor.innerHTML = `${remoteCursorMarkup(peer)}<strong>${peer.accountId || 'guest'}</strong>`;
+  }
+  cursor.style.transform = `translate3d(${peer.x}px, ${peer.y}px, 0)`;
 }
 
 function renderRemoteCursors() {
-  $$('.remote-cursor', board).forEach((cursor) => cursor.remove());
   state.cursorPeers.forEach((peer, id) => {
     if (!state.exhibit || peer.exhibitId !== state.exhibit.id) return;
     if (Date.now() - peer.updatedAt > 12000) {
       state.cursorPeers.delete(id);
+      state.cursorNodes.get(id)?.remove();
+      state.cursorNodes.delete(id);
       return;
     }
-
-    const cursor = document.createElement('div');
-    cursor.className = `remote-cursor ${peer.cursorKind === 'image' ? 'image-cursor' : 'arrow-cursor'}`;
-    cursor.style.left = `${peer.x}px`;
-    cursor.style.top = `${peer.y}px`;
-    cursor.style.setProperty('--cursor-color', peer.color || '#7d38ff');
-    cursor.innerHTML = `${remoteCursorMarkup(peer)}<strong>${peer.accountId || 'guest'}</strong>`;
-    board.appendChild(cursor);
+    renderRemoteCursor(id, peer);
+  });
+  state.cursorNodes.forEach((cursor, id) => {
+    if (!state.cursorPeers.has(id)) {
+      cursor.remove();
+      state.cursorNodes.delete(id);
+    }
   });
 }
 
 function removeRemoteCursors() {
   state.cursorPeers.clear();
-  $$('.remote-cursor', board).forEach((cursor) => cursor.remove());
+  state.cursorNodes.forEach((cursor) => cursor.remove());
+  state.cursorNodes.clear();
 }
 
 function handleCursorUpdate(payload) {
   if (!state.exhibit || payload.sourceClientId === clientId) return;
-  state.cursorPeers.set(payload.sourceClientId, {
+  const peer = {
     ...payload,
     exhibitId: state.exhibit.id,
     updatedAt: Date.now()
-  });
-  renderRemoteCursors();
+  };
+  state.cursorPeers.set(payload.sourceClientId, peer);
+  renderRemoteCursor(payload.sourceClientId, peer);
 }
 
 function handleCursorLeft(payload) {
   state.cursorPeers.delete(payload.sourceClientId);
-  renderRemoteCursors();
+  state.cursorNodes.get(payload.sourceClientId)?.remove();
+  state.cursorNodes.delete(payload.sourceClientId);
 }
 
 function sendCursorPresence(point) {
   if (!state.exhibit) return;
+  state.cursorLastSentPoint = point;
+  state.cursorLastSentAt = Date.now();
   api(`/api/exhibits/${state.exhibit.id}/presence`, {
     method: 'POST',
     body: JSON.stringify(cursorPayload(point))
   }).catch(() => {});
+}
+
+function shouldSendCursorPresence(point) {
+  if (!state.cursorLastSentPoint) return true;
+  const dx = point.x - state.cursorLastSentPoint.x;
+  const dy = point.y - state.cursorLastSentPoint.y;
+  const movedEnough = Math.hypot(dx, dy) >= cursorPresenceMinDistance;
+  const waitedEnough = Date.now() - state.cursorLastSentAt > 700;
+  return movedEnough || waitedEnough;
 }
 
 function queueCursorPresence(point) {
@@ -368,11 +449,11 @@ function queueCursorPresence(point) {
 
   state.cursorSendTimer = window.setTimeout(() => {
     state.cursorSendTimer = null;
-    if (state.pendingCursorPoint) {
+    if (state.pendingCursorPoint && shouldSendCursorPresence(state.pendingCursorPoint)) {
       sendCursorPresence(state.pendingCursorPoint);
-      state.pendingCursorPoint = null;
     }
-  }, 90);
+    state.pendingCursorPoint = null;
+  }, cursorPresenceInterval);
 }
 
 function setLocalCursorImage() {
@@ -527,7 +608,11 @@ function setGothicFlowVars(prefix, point) {
 }
 
 function animateGothicFlowLight(time = 0) {
-  if (themeField) {
+  const shouldAnimate = themeField
+    && document.body.dataset.backgroundTheme === 'goth'
+    && !document.hidden;
+  if (shouldAnimate && time - state.gothicLastFrame >= gothicFlowFrameMs) {
+    state.gothicLastFrame = time;
     setGothicFlowVars('gothic-flow', gothicPathPoint(time));
     setGothicFlowVars('gothic-flow-mid', gothicPathPoint(time, -960));
     setGothicFlowVars('gothic-flow-tail', gothicPathPoint(time, -1900));
@@ -607,6 +692,7 @@ function applyZoom(anchor = null) {
   board.style.width = `${boardSize.width}px`;
   board.style.height = `${boardSize.height}px`;
   board.style.transform = `scale(${zoom})`;
+  state.boardRect = null;
   zoomValue.textContent = `${Math.round(zoom * 100)}%`;
 
   if (anchor) {
@@ -788,7 +874,8 @@ function setMusicPresentation(presentation) {
 }
 
 function boardPoint(event) {
-  const rect = board.getBoundingClientRect();
+  const rect = state.boardRect || board.getBoundingClientRect();
+  state.boardRect = rect;
   return {
     x: (event.clientX - rect.left) / state.viewport.zoom,
     y: (event.clientY - rect.top) / state.viewport.zoom
@@ -1837,6 +1924,7 @@ function renderBoard() {
   $$('.art-widget', board).forEach((widget) => widget.remove());
 
   if (!state.exhibit) return;
+  state.boardRect = null;
   renderPagePicker();
   const pageId = state.activePageId || activePage()?.id;
   const fragment = document.createDocumentFragment();
@@ -2308,6 +2396,7 @@ boardViewport.addEventListener('pointermove', (event) => {
   const dy = event.clientY - state.viewport.panning.startY;
   boardViewport.scrollLeft = state.viewport.panning.scrollLeft - dx;
   boardViewport.scrollTop = state.viewport.panning.scrollTop - dy;
+  state.boardRect = null;
 });
 
 function stopBoardPan() {
@@ -2317,6 +2406,9 @@ function stopBoardPan() {
 
 boardViewport.addEventListener('pointerup', stopBoardPan);
 boardViewport.addEventListener('pointercancel', stopBoardPan);
+boardViewport.addEventListener('scroll', () => {
+  state.boardRect = null;
+}, { passive: true });
 
 board.addEventListener('pointerdown', (event) => {
   if (!canEdit()) return;
@@ -2492,6 +2584,7 @@ applyMusicButton.addEventListener('click', async () => {
 });
 
 window.addEventListener('resize', () => {
+  state.boardRect = null;
   if (state.exhibit) renderBoard();
 });
 

@@ -30,7 +30,14 @@ const exhibitStreams = new Map();
 
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
-app.use(express.static(publicDir));
+app.use(express.static(publicDir, {
+  etag: true,
+  setHeaders: (res, filePath) => {
+    if (/\.(?:gif|jpe?g|png|webp)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    }
+  }
+}));
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();

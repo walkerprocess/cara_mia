@@ -140,31 +140,32 @@ body[data-background-theme="goth"] .theme-field {
   --gothic-flow-tail-y: 8%;
   background-image: url("/backgrounds/goth.jpg");
   background-position: center;
-  filter: contrast(1.08) brightness(1.04);
+  filter: contrast(1.12) brightness(1.08);
 }
 
 body[data-background-theme="goth"] .theme-field::before {
-  opacity: 0.9;
+  opacity: 0.98;
   background-image: url("/backgrounds/goth.jpg");
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
   filter:
     grayscale(1)
-    contrast(3.4)
-    brightness(3.7)
-    drop-shadow(0 0 8px rgba(255, 255, 255, 0.72))
-    drop-shadow(0 0 18px rgba(239, 49, 77, 0.28));
+    contrast(3.9)
+    brightness(5.4)
+    drop-shadow(0 0 10px rgba(255, 255, 255, 0.92))
+    drop-shadow(0 0 22px rgba(239, 49, 77, 0.34));
   -webkit-mask-image:
-    radial-gradient(ellipse 15% 20% at var(--gothic-flow-x) var(--gothic-flow-y), #000 0 24%, rgba(0, 0, 0, 0.76) 40%, transparent 72%),
-    radial-gradient(ellipse 11% 16% at var(--gothic-flow-mid-x) var(--gothic-flow-mid-y), rgba(0, 0, 0, 0.72) 0 26%, transparent 76%),
-    radial-gradient(ellipse 8% 13% at var(--gothic-flow-tail-x) var(--gothic-flow-tail-y), rgba(0, 0, 0, 0.58) 0 24%, transparent 78%);
+    radial-gradient(ellipse 18% 24% at var(--gothic-flow-x) var(--gothic-flow-y), #000 0 26%, rgba(0, 0, 0, 0.82) 44%, transparent 76%),
+    radial-gradient(ellipse 13% 18% at var(--gothic-flow-mid-x) var(--gothic-flow-mid-y), rgba(0, 0, 0, 0.76) 0 28%, transparent 78%),
+    radial-gradient(ellipse 10% 15% at var(--gothic-flow-tail-x) var(--gothic-flow-tail-y), rgba(0, 0, 0, 0.64) 0 26%, transparent 80%);
   mask-image:
-    radial-gradient(ellipse 15% 20% at var(--gothic-flow-x) var(--gothic-flow-y), #000 0 24%, rgba(0, 0, 0, 0.76) 40%, transparent 72%),
-    radial-gradient(ellipse 11% 16% at var(--gothic-flow-mid-x) var(--gothic-flow-mid-y), rgba(0, 0, 0, 0.72) 0 26%, transparent 76%),
-    radial-gradient(ellipse 8% 13% at var(--gothic-flow-tail-x) var(--gothic-flow-tail-y), rgba(0, 0, 0, 0.58) 0 24%, transparent 78%);
+    radial-gradient(ellipse 18% 24% at var(--gothic-flow-x) var(--gothic-flow-y), #000 0 26%, rgba(0, 0, 0, 0.82) 44%, transparent 76%),
+    radial-gradient(ellipse 13% 18% at var(--gothic-flow-mid-x) var(--gothic-flow-mid-y), rgba(0, 0, 0, 0.76) 0 28%, transparent 78%),
+    radial-gradient(ellipse 10% 15% at var(--gothic-flow-tail-x) var(--gothic-flow-tail-y), rgba(0, 0, 0, 0.64) 0 26%, transparent 80%);
   mix-blend-mode: screen;
   animation: gothicFlowPulse 3.8s ease-in-out infinite alternate;
+  will-change: opacity, mask-image;
 }
 
 body[data-background-theme="goth"] .theme-field::after {
@@ -676,23 +677,33 @@ select:focus {
 .remote-cursor {
   position: absolute;
   z-index: 120;
+  top: 0;
+  left: 0;
   display: grid;
   grid-template-columns: 28px auto;
   align-items: start;
   gap: 5px;
   pointer-events: none;
-  transform: translate(2px, 2px);
+  transform: translate3d(-999px, -999px, 0);
+  transform-origin: 0 0;
+  contain: layout paint;
+  will-change: transform;
 }
 
 .local-cursor {
   position: absolute;
   z-index: 125;
+  top: 0;
+  left: 0;
   display: grid;
   grid-template-columns: 28px auto;
   align-items: start;
   gap: 5px;
   pointer-events: none;
-  transform: translate(2px, 2px);
+  transform: translate3d(-999px, -999px, 0);
+  transform-origin: 0 0;
+  contain: layout paint;
+  will-change: transform;
 }
 
 .remote-cursor strong,
@@ -733,6 +744,11 @@ select:focus {
   filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.32));
 }
 
+.image-cursor img {
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+}
+
 .art-widget {
   position: absolute;
   z-index: 2;
@@ -742,6 +758,8 @@ select:focus {
   border-radius: var(--widget-radius, 8px);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
   container-type: size;
+  content-visibility: auto;
+  contain-intrinsic-size: 180px 180px;
   cursor: grab;
   overflow: visible;
 }
@@ -1861,13 +1879,13 @@ select:focus {
 
 @keyframes gothicFlowPulse {
   0% {
-    opacity: 0.62;
+    opacity: 0.78;
   }
   42% {
-    opacity: 0.95;
+    opacity: 1;
   }
   100% {
-    opacity: 0.76;
+    opacity: 0.9;
   }
 }
 
