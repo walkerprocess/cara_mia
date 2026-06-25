@@ -77,7 +77,25 @@ const widgetShapes = [
   { id: 'circle', label: 'Circle', radius: '999px' },
   { id: 'arch', label: 'Arch', radius: '999px 999px 18px 18px' },
   { id: 'diamond', label: 'Diamond', radius: '8px', clip: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)' },
-  { id: 'ticket', label: 'Ticket', radius: '34px 8px 34px 8px' }
+  { id: 'ticket', label: 'Ticket', radius: '34px 8px 34px 8px' },
+  { id: 'heart', label: 'Heart', radius: '14px', clip: 'polygon(50% 92%, 14% 58%, 6% 36%, 12% 18%, 27% 8%, 42% 14%, 50% 28%, 58% 14%, 73% 8%, 88% 18%, 94% 36%, 86% 58%)' },
+  { id: 'star', label: 'Star', radius: '8px', clip: 'polygon(50% 3%, 61% 35%, 95% 35%, 67% 54%, 78% 90%, 50% 68%, 22% 90%, 33% 54%, 5% 35%, 39% 35%)' },
+  { id: 'hex', label: 'Hexagon', radius: '8px', clip: 'polygon(25% 5%, 75% 5%, 98% 50%, 75% 95%, 25% 95%, 2% 50%)' },
+  { id: 'gem', label: 'Gem', radius: '8px', clip: 'polygon(50% 0, 92% 24%, 80% 100%, 20% 100%, 8% 24%)' }
+];
+const gothicFlowPath = [
+  { x: 7, y: 11 },
+  { x: 21, y: 12 },
+  { x: 39, y: 8 },
+  { x: 56, y: 9 },
+  { x: 73, y: 7 },
+  { x: 83, y: 24 },
+  { x: 78, y: 43 },
+  { x: 72, y: 59 },
+  { x: 80, y: 82 },
+  { x: 55, y: 94 },
+  { x: 29, y: 94 },
+  { x: 9, y: 83 }
 ];
 const wordFonts = [
   { label: 'Bricolage', value: '"Bricolage Grotesque", Arial, sans-serif' },
@@ -159,6 +177,7 @@ const board = $('#board');
 const boardViewport = $('#boardViewport');
 const dragPreview = $('#dragPreview');
 const localCursor = $('#localCursor');
+const themeField = $('#themeField');
 const exhibitPicker = $('#exhibitPicker');
 const cursorSettingsButton = $('#cursorSettingsButton');
 const readModeButton = $('#readModeButton');
@@ -357,11 +376,7 @@ function queueCursorPresence(point) {
 }
 
 function setLocalCursorImage() {
-  if (state.cursorProfile.cursorImage) {
-    board.style.cursor = `url("${state.cursorProfile.cursorImage}") 4 4, auto`;
-  } else {
-    board.style.cursor = '';
-  }
+  board.style.cursor = 'none';
   renderLocalCursor();
 }
 
@@ -487,6 +502,37 @@ function createHearts() {
     heart.style.setProperty('--heart-color', gothicColors[index % gothicColors.length]);
     field.appendChild(heart);
   }
+}
+
+function gothicPathPoint(time, offset = 0) {
+  const duration = 11800;
+  const normalized = ((((time + offset) % duration) + duration) % duration) / duration;
+  const pathPosition = normalized * gothicFlowPath.length;
+  const index = Math.floor(pathPosition);
+  const nextIndex = (index + 1) % gothicFlowPath.length;
+  const rawProgress = pathPosition - index;
+  const progress = rawProgress * rawProgress * (3 - 2 * rawProgress);
+  const current = gothicFlowPath[index];
+  const next = gothicFlowPath[nextIndex];
+
+  return {
+    x: current.x + (next.x - current.x) * progress,
+    y: current.y + (next.y - current.y) * progress
+  };
+}
+
+function setGothicFlowVars(prefix, point) {
+  themeField.style.setProperty(`--${prefix}-x`, `${point.x}%`);
+  themeField.style.setProperty(`--${prefix}-y`, `${point.y}%`);
+}
+
+function animateGothicFlowLight(time = 0) {
+  if (themeField) {
+    setGothicFlowVars('gothic-flow', gothicPathPoint(time));
+    setGothicFlowVars('gothic-flow-mid', gothicPathPoint(time, -960));
+    setGothicFlowVars('gothic-flow-tail', gothicPathPoint(time, -1900));
+  }
+  window.requestAnimationFrame(animateGothicFlowLight);
 }
 
 function setView(view) {
@@ -2450,6 +2496,7 @@ window.addEventListener('resize', () => {
 });
 
 createHearts();
+animateGothicFlowLight();
 buildCursorPresets();
 applyBackgroundTheme();
 renderBackgroundPresets();

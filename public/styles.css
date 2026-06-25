@@ -132,22 +132,39 @@ body[data-background-theme="dream"] .gradient-field {
 }
 
 body[data-background-theme="goth"] .theme-field {
+  --gothic-flow-x: 7%;
+  --gothic-flow-y: 11%;
+  --gothic-flow-mid-x: 21%;
+  --gothic-flow-mid-y: 12%;
+  --gothic-flow-tail-x: 39%;
+  --gothic-flow-tail-y: 8%;
   background-image: url("/backgrounds/goth.jpg");
   background-position: center;
   filter: contrast(1.08) brightness(1.04);
 }
 
 body[data-background-theme="goth"] .theme-field::before {
-  opacity: 0.72;
-  background:
-    linear-gradient(112deg, transparent 0 32%, rgba(255, 255, 255, 0.88) 39%, transparent 46% 100%),
-    url("/backgrounds/goth.jpg");
-  background-position: -120% center, center;
-  background-size: 58% 100%, cover;
-  background-repeat: no-repeat, no-repeat;
-  filter: grayscale(1) contrast(2.8) brightness(2.8);
+  opacity: 0.9;
+  background-image: url("/backgrounds/goth.jpg");
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  filter:
+    grayscale(1)
+    contrast(3.4)
+    brightness(3.7)
+    drop-shadow(0 0 8px rgba(255, 255, 255, 0.72))
+    drop-shadow(0 0 18px rgba(239, 49, 77, 0.28));
+  -webkit-mask-image:
+    radial-gradient(ellipse 15% 20% at var(--gothic-flow-x) var(--gothic-flow-y), #000 0 24%, rgba(0, 0, 0, 0.76) 40%, transparent 72%),
+    radial-gradient(ellipse 11% 16% at var(--gothic-flow-mid-x) var(--gothic-flow-mid-y), rgba(0, 0, 0, 0.72) 0 26%, transparent 76%),
+    radial-gradient(ellipse 8% 13% at var(--gothic-flow-tail-x) var(--gothic-flow-tail-y), rgba(0, 0, 0, 0.58) 0 24%, transparent 78%);
+  mask-image:
+    radial-gradient(ellipse 15% 20% at var(--gothic-flow-x) var(--gothic-flow-y), #000 0 24%, rgba(0, 0, 0, 0.76) 40%, transparent 72%),
+    radial-gradient(ellipse 11% 16% at var(--gothic-flow-mid-x) var(--gothic-flow-mid-y), rgba(0, 0, 0, 0.72) 0 26%, transparent 76%),
+    radial-gradient(ellipse 8% 13% at var(--gothic-flow-tail-x) var(--gothic-flow-tail-y), rgba(0, 0, 0, 0.58) 0 24%, transparent 78%);
   mix-blend-mode: screen;
-  animation: gothicLineShine 7.6s ease-in-out infinite;
+  animation: gothicFlowPulse 3.8s ease-in-out infinite alternate;
 }
 
 body[data-background-theme="goth"] .theme-field::after {
@@ -478,8 +495,8 @@ select:focus {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
-  width: 132px;
-  padding: 8px;
+  width: 158px;
+  padding: 10px;
   background: rgba(16, 12, 21, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
@@ -488,16 +505,21 @@ select:focus {
 }
 
 .tool-button {
-  min-height: 44px;
+  min-height: 52px;
   display: grid;
-  grid-template-columns: 24px 1fr;
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
+  padding: 0 14px;
   color: rgba(255, 250, 252, 0.9);
   background: rgba(255, 255, 255, 0.12);
   font-weight: 800;
   text-align: left;
+}
+
+.tool-button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tool-button.active {
@@ -611,6 +633,13 @@ select:focus {
   min-width: 5200px;
   min-height: 3600px;
   transform-origin: 0 0;
+  cursor: none;
+}
+
+.board *,
+.board-viewport.panning .board,
+.board-viewport.panning .board * {
+  cursor: none !important;
 }
 
 .zoom-controls {
@@ -1121,9 +1150,9 @@ select:focus {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 5px;
-  padding: 4px;
-  width: 126px;
+  gap: 6px;
+  padding: 6px;
+  width: 186px;
   background: rgba(14, 10, 18, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 7px;
@@ -1145,21 +1174,21 @@ select:focus {
 }
 
 .music-widget-menu {
-  width: 166px;
+  width: 232px;
 }
 
 .color-widget-menu {
-  width: 166px;
+  width: 232px;
 }
 
 .wordbox-widget-menu {
-  width: 190px;
+  width: 268px;
 }
 
 .delete-widget-menu {
   width: auto;
-  min-width: 30px;
-  padding: 4px;
+  min-width: 36px;
+  padding: 6px;
   flex-wrap: nowrap;
 }
 
@@ -1167,8 +1196,8 @@ select:focus {
 .mini-button,
 .move-handle,
 .resize-handle {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -1189,9 +1218,9 @@ select:focus {
 
 .music-opacity-control {
   width: 100%;
-  height: 24px;
+  height: 28px;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   padding: 0 3px;
@@ -1214,7 +1243,7 @@ select:focus {
 .word-font-select {
   width: 100%;
   min-width: 0;
-  height: 26px;
+  height: 30px;
   padding: 0 6px;
   color: #fff;
   background: rgba(5, 4, 6, 0.72);
@@ -1226,8 +1255,8 @@ select:focus {
 .word-format-row {
   width: 100%;
   display: grid;
-  grid-template-columns: 22px 22px minmax(0, 126px);
-  gap: 5px;
+  grid-template-columns: 28px 28px minmax(0, 1fr);
+  gap: 6px;
   align-items: center;
 }
 
@@ -1246,13 +1275,12 @@ select:focus {
 }
 
 .word-size-control {
-  max-width: 126px;
-  height: 22px;
+  height: 28px;
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  gap: 4px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 6px;
   align-items: center;
-  padding: 0 4px;
+  padding: 0 6px;
   color: rgba(255, 255, 255, 0.86);
   background: rgba(5, 4, 6, 0.72);
   border-radius: 5px;
@@ -1284,18 +1312,18 @@ select:focus {
 .shape-control-row {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 5px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .border-width-control {
   width: 100%;
-  height: 24px;
+  height: 28px;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
-  padding: 0 3px;
+  padding: 0 6px;
   color: rgba(255, 255, 255, 0.86);
   background: rgba(5, 4, 6, 0.72);
   border-radius: 5px;
@@ -1321,7 +1349,7 @@ select:focus {
 
 .shape-button {
   width: 100%;
-  height: 24px;
+  height: 28px;
   padding: 0;
   background: rgba(255, 255, 255, 0.72);
   border: 0;
@@ -1362,6 +1390,22 @@ select:focus {
 
 .shape-ticket::before {
   border-radius: 9px 2px 9px 2px;
+}
+
+.shape-heart::before {
+  clip-path: polygon(50% 92%, 14% 58%, 6% 36%, 12% 18%, 27% 8%, 42% 14%, 50% 28%, 58% 14%, 73% 8%, 88% 18%, 94% 36%, 86% 58%);
+}
+
+.shape-star::before {
+  clip-path: polygon(50% 3%, 61% 35%, 95% 35%, 67% 54%, 78% 90%, 50% 68%, 22% 90%, 33% 54%, 5% 35%, 39% 35%);
+}
+
+.shape-hex::before {
+  clip-path: polygon(25% 5%, 75% 5%, 98% 50%, 75% 95%, 25% 95%, 2% 50%);
+}
+
+.shape-gem::before {
+  clip-path: polygon(50% 0, 92% 24%, 80% 100%, 20% 100%, 8% 24%);
 }
 
 .move-handle {
@@ -1815,23 +1859,15 @@ select:focus {
   }
 }
 
-@keyframes gothicLineShine {
+@keyframes gothicFlowPulse {
   0% {
-    opacity: 0;
-    background-position: -120% center, center;
+    opacity: 0.62;
   }
-  18% {
-    opacity: 0.42;
-  }
-  44% {
-    opacity: 0.86;
-  }
-  70% {
-    opacity: 0.28;
+  42% {
+    opacity: 0.95;
   }
   100% {
-    opacity: 0;
-    background-position: 220% center, center;
+    opacity: 0.76;
   }
 }
 
@@ -2046,13 +2082,13 @@ select:focus {
     top: -38px;
     right: auto;
     left: 0;
-    width: min(180px, calc(100vw - 20px));
+    width: min(268px, calc(100vw - 20px));
   }
 
   .external-controls .delete-widget-menu,
   .external-controls.controls-left .delete-widget-menu {
     width: auto;
-    min-width: 30px;
+    min-width: 36px;
   }
 
   .external-controls .move-handle,
