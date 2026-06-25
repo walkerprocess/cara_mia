@@ -608,7 +608,10 @@ select:focus {
 }
 
 .color-swatch.active {
-  box-shadow: 0 0 0 3px #050406;
+  border-color: #ffc857;
+  box-shadow:
+    0 0 0 2px #050406,
+    0 0 0 5px rgba(255, 200, 87, 0.76);
 }
 
 .brush-size {
@@ -634,10 +637,10 @@ select:focus {
   min-width: 5200px;
   min-height: 3600px;
   transform-origin: 0 0;
-  cursor: none;
 }
 
-.board *,
+.board.custom-cursor-active,
+.board.custom-cursor-active *,
 .board-viewport.panning .board,
 .board-viewport.panning .board * {
   cursor: none !important;
@@ -680,7 +683,7 @@ select:focus {
   top: 0;
   left: 0;
   display: grid;
-  grid-template-columns: 28px auto;
+  grid-template-columns: 44px auto;
   align-items: start;
   gap: 5px;
   pointer-events: none;
@@ -696,7 +699,7 @@ select:focus {
   top: 0;
   left: 0;
   display: grid;
-  grid-template-columns: 28px auto;
+  grid-template-columns: 44px auto;
   align-items: start;
   gap: 5px;
   pointer-events: none;
@@ -709,7 +712,7 @@ select:focus {
 .remote-cursor strong,
 .local-cursor strong {
   max-width: 140px;
-  margin-top: 20px;
+  margin-top: 28px;
   padding: 3px 7px;
   overflow: hidden;
   color: #fff;
@@ -738,8 +741,8 @@ select:focus {
 
 .remote-cursor img,
 .local-cursor img {
-  width: 34px;
-  height: 34px;
+  width: 46px;
+  height: 46px;
   object-fit: contain;
   filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.32));
 }
@@ -799,6 +802,7 @@ select:focus {
   line-height: 1.22;
   outline: none;
   overflow: auto;
+  white-space: pre-wrap;
   border-radius: inherit;
   clip-path: inherit;
 }
@@ -1209,6 +1213,13 @@ select:focus {
   flex-wrap: nowrap;
 }
 
+.widget-color-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .mini-swatch,
 .mini-button,
 .move-handle,
@@ -1224,6 +1235,14 @@ select:focus {
 
 .mini-swatch {
   border: 1px solid rgba(255, 255, 255, 0.42);
+}
+
+.mini-swatch.active {
+  border-color: #ffc857;
+  outline: 2px solid #050406;
+  box-shadow:
+    0 0 0 3px rgba(255, 200, 87, 0.8),
+    0 8px 18px rgba(0, 0, 0, 0.28);
 }
 
 .mini-button,
@@ -1707,9 +1726,10 @@ select:focus {
 }
 
 .cursor-preset {
-  height: 70px;
+  min-height: 78px;
   display: grid;
   place-items: center;
+  gap: 4px;
   background: rgba(255, 255, 255, 0.58);
   border: 2px solid transparent;
   border-radius: 7px;
@@ -1725,9 +1745,42 @@ select:focus {
 }
 
 .cursor-preset img {
-  width: 52px;
-  height: 52px;
+  width: 66px;
+  height: 66px;
   object-fit: contain;
+}
+
+.default-cursor-mark {
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  color: #050406;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.screenshot-viewport {
+  background: #020103;
+}
+
+.screenshot-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.screenshot-background .gradient-field,
+.screenshot-background .heart-field,
+.screenshot-background .theme-field {
+  position: absolute;
+  inset: 0;
+  z-index: auto;
+}
+
+.screenshot-board {
+  z-index: 1;
 }
 
 .cursor-upload {

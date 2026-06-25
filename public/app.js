@@ -130,6 +130,7 @@ const zoomLimits = { min: 0.35, max: 2.25, step: 0.1 };
 const cursorPresenceInterval = 150;
 const cursorPresenceMinDistance = 6;
 const gothicFlowFrameMs = 42;
+const canvasUndoLimit = 24;
 
 const state = {
   user: null,
@@ -157,6 +158,8 @@ const state = {
   pendingPageAction: null,
   drawingFrame: null,
   pendingDrawPoint: null,
+  activeDrawingCanvas: null,
+  canvasHistories: new WeakMap(),
   liveEvents: null,
   liveExhibitId: null,
   liveRetryTimer: null,
@@ -322,6 +325,12 @@ function localCursorKey() {
 
 function ensureLocalCursorContents() {
   if (!localCursor) return;
+  if (!state.cursorProfile.cursorImage) {
+    state.localCursorKey = 'default';
+    localCursor.classList.add('hidden');
+    localCursor.innerHTML = '';
+    return;
+  }
   const nextKey = localCursorKey();
   if (state.localCursorKey === nextKey) return;
   state.localCursorKey = nextKey;
@@ -333,6 +342,10 @@ function ensureLocalCursorContents() {
 
 function moveLocalCursor(point) {
   if (!localCursor) return;
+  if (!state.cursorProfile.cursorImage) {
+    localCursor.classList.add('hidden');
+    return;
+  }
   localCursor.style.transform = `translate3d(${point.x}px, ${point.y}px, 0)`;
   localCursor.classList.remove('hidden');
 }
@@ -457,7 +470,7 @@ function queueCursorPresence(point) {
 }
 
 function setLocalCursorImage() {
-  board.style.cursor = 'none';
+  board.classList.toggle('custom-cursor-active', Boolean(state.cursorProfile.cursorImage));
   renderLocalCursor();
 }
 
@@ -484,7 +497,7 @@ function buildCursorPresets() {
     button.title = preset.label;
     button.innerHTML = preset.url
       ? `<img src="${preset.url}" alt="">`
-      : '<span class="remote-cursor-arrow"></span>';
+      : '<span class="default-cursor-mark"><span class="remote-cursor-arrow"></span><strong>Default</strong></span>';
     button.addEventListener('click', () => {
       state.cursorProfile.cursorImage = preset.url;
       saveCursorProfile();
@@ -538,7 +551,7 @@ function resizeCursorUpload(file) {
       const image = new Image();
       image.onload = () => {
         const canvas = document.createElement('canvas');
-        const maxSize = 96;
+        const maxSize = 160;
         const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
         canvas.width = Math.max(1, Math.round(image.width * scale));
         canvas.height = Math.max(1, Math.round(image.height * scale));
@@ -818,6 +831,17 @@ function setWidgetVisualVars(target, data = {}) {
   target.style.setProperty('--widget-border-width', `${Number(data.borderWidth ?? 1)}px`);
 }
 
+function updateSwatchSelection(container, activeValue) {
+  $$('.mini-swatch, .color-swatch', container).forEach((swatch) => {
+    swatch.classList.toggle('active', swatch.dataset.color === String(activeValue));
+  });
+}
+
+function setWidgetData(widget, data) {
+  widget.data = data;
+  return data;
+}
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const minutes = Math.floor(seconds / 60);
@@ -974,7 +998,7 @@ function appendWordboxControls(menu, widget, element, data) {
   });
   fontSelect.addEventListener('change', (event) => {
     event.stopPropagation();
-    const nextData = { ...widgetData(widget), fontFamily: fontSelect.value };
+    const nextData = setWidgetData(widget, { ...widgetData(widget), fontFamily: fontSelect.value });
     scheduleWidgetSave(widget, { data: nextData }, 120);
     setWordVisualVars(element, nextData);
   });
@@ -992,7 +1016,7 @@ function appendWordboxControls(menu, widget, element, data) {
     button.classList.toggle('active', Boolean(data[key]));
     button.addEventListener('click', (event) => {
       event.stopPropagation();
-      const nextData = { ...widgetData(widget), [key]: !widgetData(widget)[key] };
+      const nextData = setWidgetData(widget, { ...widgetData(widget), [key]: !widgetData(widget)[key] });
       scheduleWidgetSave(widget, { data: nextData }, 120);
       setWordVisualVars(element, nextData);
       button.classList.toggle('active', Boolean(nextData[key]));
@@ -1016,7 +1040,7 @@ function appendWordboxControls(menu, widget, element, data) {
   sizeInput.setAttribute('aria-label', 'Text size');
   sizeInput.addEventListener('input', (event) => {
     event.stopPropagation();
-    const nextData = { ...widgetData(widget), fontSize: Number(sizeInput.value) };
+    const nextData = setWidgetData(widget, { ...widgetData(widget), fontSize: Number(sizeInput.value) });
     scheduleWidgetSave(widget, { data: nextData }, 120);
     setWordVisualVars(element, nextData);
   });
@@ -1031,12 +1055,15 @@ function appendWordboxControls(menu, widget, element, data) {
     swatch.className = 'mini-swatch word-color-swatch';
     swatch.type = 'button';
     swatch.title = 'Text color';
+    swatch.dataset.color = color;
     swatch.style.background = color;
+    swatch.classList.toggle('active', color === (data.color || '#050406'));
     swatch.addEventListener('click', (event) => {
       event.stopPropagation();
-      const nextData = { ...widgetData(widget), color };
+      const nextData = setWidgetData(widget, { ...widgetData(widget), color });
       scheduleWidgetSave(widget, { data: nextData }, 120);
       setWordVisualVars(element, nextData);
+      updateSwatchSelection(colorRow, color);
     });
     colorRow.appendChild(swatch);
   });
@@ -1051,12 +1078,15 @@ function appendBorderControls(menu, widget, element) {
     swatch.className = `mini-swatch border-swatch ${color === 'transparent' ? 'transparent-swatch' : ''}`.trim();
     swatch.type = 'button';
     swatch.title = color === 'transparent' ? 'No border' : 'Border color';
+    swatch.dataset.color = color;
     swatch.style.background = color;
+    swatch.classList.toggle('active', color === (widgetData(widget).borderColor || 'rgba(255,255,255,0.16)'));
     swatch.addEventListener('click', (event) => {
       event.stopPropagation();
-      const nextData = { ...widgetData(widget), borderColor: color, borderWidth: color === 'transparent' ? 0 : (widgetData(widget).borderWidth || 2) };
+      const nextData = setWidgetData(widget, { ...widgetData(widget), borderColor: color, borderWidth: color === 'transparent' ? 0 : (widgetData(widget).borderWidth || 2) });
       scheduleWidgetSave(widget, { data: nextData }, 120);
       setWidgetVisualVars(element, nextData);
+      updateSwatchSelection(borderRow, color);
     });
     borderRow.appendChild(swatch);
   });
@@ -1074,7 +1104,7 @@ function appendBorderControls(menu, widget, element) {
   widthInput.setAttribute('aria-label', 'Border width');
   widthInput.addEventListener('input', (event) => {
     event.stopPropagation();
-    const nextData = { ...widgetData(widget), borderWidth: Number(widthInput.value) };
+    const nextData = setWidgetData(widget, { ...widgetData(widget), borderWidth: Number(widthInput.value) });
     scheduleWidgetSave(widget, { data: nextData }, 120);
     setWidgetVisualVars(element, nextData);
   });
@@ -1093,7 +1123,7 @@ function appendShapeControls(menu, widget, element) {
     button.classList.toggle('active', shapeConfig(widgetData(widget)).id === shape.id);
     button.addEventListener('click', (event) => {
       event.stopPropagation();
-      const nextData = { ...widgetData(widget), shape: shape.id };
+      const nextData = setWidgetData(widget, { ...widgetData(widget), shape: shape.id });
       scheduleWidgetSave(widget, { data: nextData }, 120);
       setWidgetVisualVars(element, nextData);
       $$('.shape-button', shapeRow).forEach((item) => item.classList.toggle('active', item === button));
@@ -1162,25 +1192,38 @@ function widgetShell(widget) {
 
     if (widget.type === 'canvas' || widget.type === 'wordbox' || widget.type === 'music') {
       const palette = widget.type === 'music' ? musicPlayerColors : widgetColors;
+      const paletteRow = document.createElement('div');
+      paletteRow.className = 'widget-color-row';
       palette.forEach((color) => {
         const swatch = document.createElement('button');
         swatch.className = 'mini-swatch';
         swatch.type = 'button';
         swatch.title = 'Color';
+        swatch.dataset.color = color;
         swatch.style.background = color;
+        const activeColor = widget.type === 'music'
+          ? (data.playerColor || '#f6e8f1')
+          : (data.background || 'rgba(255,255,255,0.84)');
+        swatch.classList.toggle('active', color === activeColor);
         swatch.addEventListener('click', (event) => {
           event.stopPropagation();
           const key = widget.type === 'music' ? 'playerColor' : 'background';
-          const nextData = { ...widgetData(widget), [key]: color };
-          scheduleWidgetSave(widget, { data: nextData }, 120);
+          const previousBackground = canvasBackgroundColor(widget);
+          const nextData = setWidgetData(widget, { ...widgetData(widget), [key]: color });
           if (widget.type === 'music') {
             applyMusicVisuals(element, nextData);
           } else {
             element.style.setProperty('--widget-bg', color);
+            if (widget.type === 'canvas') {
+              updateCanvasBackground(widget, element, nextData, previousBackground);
+            }
           }
+          scheduleWidgetSave(widget, { data: nextData }, 120);
+          updateSwatchSelection(paletteRow, color);
         });
-        menu.appendChild(swatch);
+        paletteRow.appendChild(swatch);
       });
+      menu.appendChild(paletteRow);
 
       if (widget.type === 'music') {
         const opacityControl = document.createElement('label');
@@ -1196,7 +1239,7 @@ function widgetShell(widget) {
         opacityInput.setAttribute('aria-label', 'Transparency');
         opacityInput.addEventListener('input', (event) => {
           event.stopPropagation();
-          const nextData = { ...widgetData(widget), playerAlpha: Number(opacityInput.value) / 100 };
+          const nextData = setWidgetData(widget, { ...widgetData(widget), playerAlpha: Number(opacityInput.value) / 100 });
           scheduleWidgetSave(widget, { data: nextData }, 120);
           applyMusicVisuals(element, nextData);
         });
@@ -1464,6 +1507,80 @@ function canvasBackgroundColor(widget) {
   return widgetData(widget).background || 'rgba(255,255,255,0.84)';
 }
 
+function cssColorToRgba(color) {
+  const canvas = cssColorToRgba.canvas || document.createElement('canvas');
+  cssColorToRgba.canvas = canvas;
+  canvas.width = 1;
+  canvas.height = 1;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.clearRect(0, 0, 1, 1);
+  context.fillStyle = color || 'rgba(255,255,255,0.84)';
+  context.fillRect(0, 0, 1, 1);
+  return [...context.getImageData(0, 0, 1, 1).data];
+}
+
+function replaceCanvasColor(canvas, context, fromColor, toColor, tolerance = 36) {
+  const from = cssColorToRgba(fromColor);
+  const to = cssColorToRgba(toColor);
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const { data } = image;
+
+  for (let index = 0; index < data.length; index += 4) {
+    if (
+      Math.abs(data[index] - from[0]) <= tolerance &&
+      Math.abs(data[index + 1] - from[1]) <= tolerance &&
+      Math.abs(data[index + 2] - from[2]) <= tolerance &&
+      Math.abs(data[index + 3] - from[3]) <= tolerance
+    ) {
+      data[index] = to[0];
+      data[index + 1] = to[1];
+      data[index + 2] = to[2];
+      data[index + 3] = to[3];
+    }
+  }
+
+  context.putImageData(image, 0, 0);
+  context.save();
+  context.globalCompositeOperation = 'destination-over';
+  context.fillStyle = toColor;
+  context.fillRect(0, 0, Number(canvas.dataset.logicalWidth || canvas.width), Number(canvas.dataset.logicalHeight || canvas.height));
+  context.restore();
+}
+
+function updateCanvasBackground(widget, element, nextData, previousBackground) {
+  const canvas = $('canvas', element);
+  if (!canvas) return;
+  const context = canvas.getContext('2d');
+  replaceCanvasColor(canvas, context, previousBackground, nextData.background || 'rgba(255,255,255,0.84)');
+  nextData.image = canvas.toDataURL('image/png');
+}
+
+function canvasHistory(canvas) {
+  if (!state.canvasHistories.has(canvas)) {
+    state.canvasHistories.set(canvas, []);
+  }
+  return state.canvasHistories.get(canvas);
+}
+
+function pushCanvasUndo(canvas) {
+  const history = canvasHistory(canvas);
+  const snapshot = canvas.toDataURL('image/png');
+  if (history[history.length - 1] === snapshot) return;
+  history.push(snapshot);
+  if (history.length > canvasUndoLimit) history.shift();
+}
+
+function restoreCanvasSnapshot(canvas, context, widget, snapshot) {
+  const image = new Image();
+  image.onload = () => {
+    context.clearRect(0, 0, widget.width, widget.height);
+    context.drawImage(image, 0, 0, widget.width, widget.height);
+    const nextData = setWidgetData(widget, { ...widgetData(widget), image: canvas.toDataURL('image/png') });
+    scheduleWidgetSave(widget, { data: nextData }, 80);
+  };
+  image.src = snapshot;
+}
+
 function brushRgba() {
   const { r, g, b } = parseHexColor(state.brush.color);
   return [r, g, b, 255];
@@ -1655,7 +1772,7 @@ function wireDrawing(canvas, context, widget) {
       state.pendingDrawPoint = null;
     }
     drawing = false;
-    const nextData = { ...widgetData(widget), image: canvas.toDataURL('image/png') };
+    const nextData = setWidgetData(widget, { ...widgetData(widget), image: canvas.toDataURL('image/png') });
     scheduleWidgetSave(widget, { data: nextData }, 80);
   };
 
@@ -1663,16 +1780,19 @@ function wireDrawing(canvas, context, widget) {
     if (state.selectedTool !== 'brush') return;
     event.preventDefault();
     event.stopPropagation();
+    state.activeDrawingCanvas = { canvas, context, widget };
     const point = pointFor(event);
 
     if (state.brush.utensil === 'fill') {
+      pushCanvasUndo(canvas);
       if (floodFill(canvas, context, point)) {
-        const nextData = { ...widgetData(widget), image: canvas.toDataURL('image/png') };
+        const nextData = setWidgetData(widget, { ...widgetData(widget), image: canvas.toDataURL('image/png') });
         scheduleWidgetSave(widget, { data: nextData }, 80);
       }
       return;
     }
 
+    pushCanvasUndo(canvas);
     drawing = true;
     last = point;
     state.pendingDrawPoint = null;
@@ -1703,8 +1823,13 @@ function renderWordboxWidget(widget) {
   content.spellcheck = true;
   content.textContent = data.text || '';
   content.addEventListener('input', () => {
-    const nextData = { ...widgetData(widget), text: content.textContent };
+    const nextData = setWidgetData(widget, { ...widgetData(widget), text: content.innerText.replace(/\r\n/g, '\n') });
     scheduleWidgetSave(widget, { data: nextData });
+  });
+  content.addEventListener('paste', (event) => {
+    event.preventDefault();
+    const text = event.clipboardData?.getData('text/plain') || '';
+    document.execCommand('insertText', false, text);
   });
   element.appendChild(content);
   return element;
@@ -2194,6 +2319,35 @@ function loadScreenshotLibrary() {
   });
 }
 
+function undoActiveCanvas() {
+  if (!state.activeDrawingCanvas) return false;
+  const { canvas, context, widget } = state.activeDrawingCanvas;
+  const history = canvasHistory(canvas);
+  const snapshot = history.pop();
+  if (!snapshot) return false;
+  restoreCanvasSnapshot(canvas, context, widget, snapshot);
+  return true;
+}
+
+function prepareScreenshotClone(clonedDocument) {
+  const clonedViewport = clonedDocument.querySelector('#boardViewport');
+  if (!clonedViewport) return;
+
+  const background = clonedDocument.createElement('div');
+  background.className = 'screenshot-background';
+  ['gradientField', 'heartField', 'themeField'].forEach((id) => {
+    const layer = clonedDocument.getElementById(id);
+    if (!layer) return;
+    const clone = layer.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.classList.add('screenshot-background-layer');
+    background.appendChild(clone);
+  });
+  clonedViewport.prepend(background);
+  clonedViewport.classList.add('screenshot-viewport');
+  clonedDocument.querySelector('#board')?.classList.add('screenshot-board');
+}
+
 async function downloadScreenshot() {
   const previousMode = state.viewMode;
   setViewMode('read');
@@ -2204,7 +2358,8 @@ async function downloadScreenshot() {
       backgroundColor: null,
       scale: Math.min(2, window.devicePixelRatio || 1),
       useCORS: true,
-      ignoreElements: (element) => element.classList?.contains('remote-cursor')
+      onclone: prepareScreenshotClone,
+      ignoreElements: (element) => element.classList?.contains('remote-cursor') || element.classList?.contains('local-cursor')
     });
     const link = document.createElement('a');
     link.download = `${activePage()?.name || 'cara-mia'}-${new Date().toISOString().slice(0, 10)}.png`;
@@ -2374,6 +2529,14 @@ $('.color-swatch', colorRail)?.classList.add('active');
 
 brushSize.addEventListener('input', () => {
   state.brush.size = Number(brushSize.value);
+});
+
+window.addEventListener('keydown', (event) => {
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+  if (undoActiveCanvas()) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
 });
 
 boardViewport.addEventListener('pointerdown', (event) => {
