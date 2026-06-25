@@ -560,8 +560,8 @@ select:focus {
   position: fixed;
   z-index: 27;
   top: 98px;
-  left: 162px;
-  width: 168px;
+  left: 196px;
+  width: 214px;
   padding: 8px;
   display: grid;
   gap: 12px;
@@ -683,13 +683,13 @@ select:focus {
   top: 0;
   left: 0;
   display: grid;
-  grid-template-columns: 44px auto;
+  grid-template-columns: 68px auto;
   align-items: start;
   gap: 5px;
   pointer-events: none;
   transform: translate3d(-999px, -999px, 0);
   transform-origin: 0 0;
-  contain: layout paint;
+  overflow: visible;
   will-change: transform;
 }
 
@@ -699,13 +699,13 @@ select:focus {
   top: 0;
   left: 0;
   display: grid;
-  grid-template-columns: 44px auto;
+  grid-template-columns: 68px auto;
   align-items: start;
   gap: 5px;
   pointer-events: none;
   transform: translate3d(-999px, -999px, 0);
   transform-origin: 0 0;
-  contain: layout paint;
+  overflow: visible;
   will-change: transform;
 }
 
@@ -741,14 +741,14 @@ select:focus {
 
 .remote-cursor img,
 .local-cursor img {
-  width: 46px;
-  height: 46px;
+  width: 60px;
+  height: 60px;
   object-fit: contain;
   filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.32));
 }
 
 .image-cursor img {
-  transform: translate(-50%, -50%);
+  transform: translate(-12px, -12px);
   transform-origin: center;
 }
 
@@ -785,7 +785,7 @@ select:focus {
   display: block;
   background: var(--widget-bg, rgba(255, 255, 255, 0.82));
   border-radius: inherit;
-  clip-path: inherit;
+  clip-path: var(--widget-clip, none);
   touch-action: none;
 }
 
@@ -804,7 +804,7 @@ select:focus {
   overflow: auto;
   white-space: pre-wrap;
   border-radius: inherit;
-  clip-path: inherit;
+  clip-path: var(--widget-clip, none);
 }
 
 .external-controls .wordbox-content {
@@ -2124,9 +2124,14 @@ select:focus {
     bottom: 82px;
     left: 10px;
     width: calc(100vw - 20px);
-    grid-template-columns: minmax(144px, auto) 1fr minmax(86px, 120px);
+    grid-template-columns: minmax(0, 1fr) minmax(86px, 120px);
+    grid-template-areas:
+      "utensils size"
+      "colors colors";
     align-items: center;
     gap: 8px;
+    max-height: calc(100vh - 172px);
+    overflow: hidden;
   }
 
   .zoom-controls {
@@ -2135,6 +2140,7 @@ select:focus {
   }
 
   .utensils {
+    grid-area: utensils;
     grid-template-columns: repeat(4, minmax(0, 38px));
   }
 
@@ -2143,8 +2149,16 @@ select:focus {
   }
 
   .color-rail {
-    grid-template-columns: repeat(auto-fit, minmax(22px, 1fr));
+    grid-area: colors;
+    grid-template-columns: repeat(auto-fit, minmax(24px, 1fr));
     justify-content: center;
+    max-height: 118px;
+    overflow-y: auto;
+    padding: 4px 2px;
+  }
+
+  .brush-size {
+    grid-area: size;
   }
 
   .external-controls .widget-menu,

@@ -131,6 +131,7 @@ const cursorPresenceInterval = 150;
 const cursorPresenceMinDistance = 6;
 const gothicFlowFrameMs = 42;
 const canvasUndoLimit = 24;
+const appUndoLimit = 40;
 
 const state = {
   user: null,
@@ -173,6 +174,8 @@ const state = {
   pendingLocalCursorPoint: null,
   localCursorFrame: null,
   localCursorKey: '',
+  appUndoStack: [],
+  lastUndoDomain: null,
   boardRect: null,
   gothicLastFrame: 0,
   saveTimers: new Map(),
@@ -551,7 +554,7 @@ function resizeCursorUpload(file) {
       const image = new Image();
       image.onload = () => {
         const canvas = document.createElement('canvas');
-        const maxSize = 160;
+        const maxSize = 220;
         const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
         canvas.width = Math.max(1, Math.round(image.width * scale));
         canvas.height = Math.max(1, Math.round(image.height * scale));
@@ -752,6 +755,81 @@ function setControlsForRole() {
 
 function widgetData(widget) {
   return widget.data && typeof widget.data === 'object' ? widget.data : {};
+}
+
+function cloneWidget(widget) {
+  return JSON.parse(JSON.stringify(widget));
+}
+
+function pushAppUndo(action) {
+  state.appUndoStack.push(action);
+  state.lastUndoDomain = 'app';
+  if (state.appUndoStack.length > appUndoLimit) {
+    state.appUndoStack.splice(0, state.appUndoStack.length - appUndoLimit);
+  }
+}
+
+async function restoreDeletedWidget(action) {
+  if (!canEdit() || !state.exhibit || !action?.widget) return false;
+
+  const original = action.widget;
+  const { widget } = await api('/api/widgets', {
+    method: 'POST',
+    body: JSON.stringify({
+      exhibitId: state.exhibit.id,
+      pageId: original.page_id || state.activePageId || activePage()?.id,
+      type: original.type,
+      x: original.x,
+      y: original.y,
+      width: original.width,
+      height: original.height,
+      data: widgetData(original)
+    })
+  });
+
+  const { widget: saved } = await api(`/api/widgets/${widget.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      x: original.x,
+      y: original.y,
+      width: original.width,
+      height: original.height,
+      zIndex: original.z_index,
+      pageId: original.page_id || state.activePageId,
+      data: widgetData(original)
+    })
+  });
+
+  const insertAt = clamp(Number(action.index), 0, state.exhibit.widgets.length);
+  state.exhibit.widgets.splice(insertAt, 0, saved);
+  state.exhibit.widgets.sort((a, b) => (a.z_index - b.z_index) || String(a.created_at).localeCompare(String(b.created_at)));
+  if (saved.page_id) {
+    state.activePageId = saved.page_id;
+    localStorage.setItem(`caraMiaPage:${state.exhibit.id}`, saved.page_id);
+  }
+  applyBackgroundTheme();
+  renderBackgroundPresets();
+  renderBoard();
+  showToast('Deleted item restored.');
+  return true;
+}
+
+async function undoLastAppAction() {
+  while (state.appUndoStack.length) {
+    const action = state.appUndoStack.pop();
+    if (action.type !== 'restore-widget') continue;
+    const restored = await restoreDeletedWidget(action);
+    if (restored && !state.appUndoStack.length) {
+      state.lastUndoDomain = null;
+    }
+    return restored;
+  }
+  state.lastUndoDomain = null;
+  return false;
+}
+
+function isTextEditingTarget(target) {
+  return Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"]'));
 }
 
 function clamp(value, min, max) {
@@ -1264,9 +1342,15 @@ function widgetShell(widget) {
     remove.innerHTML = '<i data-lucide="trash-2"></i>';
     remove.addEventListener('click', async (event) => {
       event.stopPropagation();
+      const deletedWidget = cloneWidget(widget);
+      const deletedIndex = state.exhibit.widgets.findIndex((item) => item.id === widget.id);
+      window.clearTimeout(state.saveTimers.get(widget.id));
+      state.saveTimers.delete(widget.id);
       await api(`/api/widgets/${widget.id}`, { method: 'DELETE' });
       state.exhibit.widgets = state.exhibit.widgets.filter((item) => item.id !== widget.id);
+      pushAppUndo({ type: 'restore-widget', widget: deletedWidget, index: deletedIndex });
       renderBoard();
+      showToast('Deleted. Press Ctrl+Z to undo.');
     });
     menu.appendChild(remove);
     element.appendChild(menu);
@@ -1567,6 +1651,7 @@ function pushCanvasUndo(canvas) {
   const snapshot = canvas.toDataURL('image/png');
   if (history[history.length - 1] === snapshot) return;
   history.push(snapshot);
+  state.lastUndoDomain = 'canvas';
   if (history.length > canvasUndoLimit) history.shift();
 }
 
@@ -2324,8 +2409,14 @@ function undoActiveCanvas() {
   const { canvas, context, widget } = state.activeDrawingCanvas;
   const history = canvasHistory(canvas);
   const snapshot = history.pop();
-  if (!snapshot) return false;
+  if (!snapshot) {
+    state.lastUndoDomain = state.appUndoStack.length ? 'app' : null;
+    return false;
+  }
   restoreCanvasSnapshot(canvas, context, widget, snapshot);
+  if (!history.length && state.lastUndoDomain === 'canvas') {
+    state.lastUndoDomain = state.appUndoStack.length ? 'app' : null;
+  }
   return true;
 }
 
@@ -2531,11 +2622,36 @@ brushSize.addEventListener('input', () => {
   state.brush.size = Number(brushSize.value);
 });
 
-window.addEventListener('keydown', (event) => {
-  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+window.addEventListener('keydown', async (event) => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
+  if (isTextEditingTarget(event.target)) return;
+  const appUndoFirst = state.lastUndoDomain === 'app';
+  if (appUndoFirst) {
+    try {
+      if (await undoLastAppAction()) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
+  }
+
   if (undoActiveCanvas()) {
     event.preventDefault();
     event.stopPropagation();
+    return;
+  }
+
+  try {
+    if (!appUndoFirst && await undoLastAppAction()) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  } catch (error) {
+    showToast(error.message);
   }
 });
 
