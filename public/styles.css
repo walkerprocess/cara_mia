@@ -758,8 +758,6 @@ select:focus {
   border-radius: var(--widget-radius, 8px);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
   container-type: size;
-  content-visibility: auto;
-  contain-intrinsic-size: 180px 180px;
   cursor: grab;
   overflow: visible;
 }
@@ -1181,7 +1179,8 @@ select:focus {
 }
 
 .art-widget:hover .widget-menu,
-.art-widget.controls-open .widget-menu {
+.art-widget.controls-open .widget-menu,
+.art-widget.selected .widget-menu {
   opacity: 1;
   pointer-events: auto;
 }
