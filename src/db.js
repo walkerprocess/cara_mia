@@ -2,10 +2,7 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const bcrypt = require('bcryptjs');
-const ExcelJS = require('exceljs');
 const { Pool } = require('pg');
-const BetterSqlite3 = require('better-sqlite3');
 
 const rootDir = path.resolve(__dirname, '..');
 const databaseDir = path.join(rootDir, 'database');
@@ -150,6 +147,10 @@ async function ensureDefaultPage(exhibitId) {
 }
 
 async function seedTestAccount() {
+  if (process.env.NODE_ENV === 'production' && process.env.SEED_TEST_ACCOUNT !== 'true') {
+    return;
+  }
+
   const accountId = 'babaganoosh';
   const email = 'babaganoosh@cara-mia.local';
   const existing = await get('SELECT * FROM users WHERE account_id = ?', [accountId]);
@@ -160,6 +161,7 @@ async function seedTestAccount() {
   }
 
   const id = randomUUID();
+  const bcrypt = require('bcryptjs');
   const passwordHash = await bcrypt.hash('staygoldenponyboy', 12);
 
   await query(
@@ -198,6 +200,7 @@ async function writeCsv(table, rows) {
 }
 
 async function writeExcel(tables) {
+  const ExcelJS = require('exceljs');
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Cara Mia';
   workbook.created = new Date();
@@ -408,6 +411,7 @@ async function initDb() {
     await migratePostgresPages();
   } else {
     const sqlitePath = path.join(databaseDir, 'cara-mia.sqlite');
+    const BetterSqlite3 = require('better-sqlite3');
     client = new BetterSqlite3(sqlitePath);
     client.pragma('foreign_keys = ON');
     client.exec(readSchema('schema.sqlite.sql'));
