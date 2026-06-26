@@ -1,7 +1,8 @@
 # Cara Mia
 
 Cara Mia is a shared art-exhibit website for long-distance collaboration. It has login/signup, draggable exhibit widgets, drawing canvases, word boxes, music search, and email-based sharing with viewer or collaborator permissions.
-
+If you want to make a web page for your lover this might be the one!
+Or if you want to be romantic and draw something together.... IDK
 
 ## Local Run
 
