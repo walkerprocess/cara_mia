@@ -83,6 +83,51 @@ const widgetShapes = [
   { id: 'hex', label: 'Hexagon', radius: '8px', clip: 'polygon(25% 5%, 75% 5%, 98% 50%, 75% 95%, 25% 95%, 2% 50%)' },
   { id: 'gem', label: 'Gem', radius: '8px', clip: 'polygon(50% 0, 92% 24%, 80% 100%, 20% 100%, 8% 24%)' }
 ];
+const pictureFrames = [
+  { id: 'clean', label: 'Clean' },
+  { id: 'classic', label: 'Classic' },
+  { id: 'polaroid', label: 'Polaroid' },
+  { id: 'film', label: 'Film' },
+  { id: 'heart', label: 'Heart' }
+];
+const questionPresets = {
+  romantic: [
+    'What tiny thing made you feel loved today?',
+    'What is one memory with us that still makes you smile?',
+    'What do you miss most about being near me?',
+    'What song feels like us right now?',
+    'What is one date you want us to have someday?',
+    'What is a small promise you want us to keep?',
+    'What part of our future are you most excited about?',
+    'When did you feel closest to me this week?',
+    'What is one thing I do that makes you feel safe?',
+    'What should we celebrate about us today?'
+  ],
+  goofy: [
+    'If we had a silly couple mascot, what would it be?',
+    'What food would describe your mood today?',
+    'What ridiculous superpower would make long distance easier?',
+    'What inside joke deserves a comeback?',
+    'What would our relationship sitcom episode be called today?',
+    'If I were a snack, what snack would I be?',
+    'What is the funniest thing you wanted to tell me today?',
+    'What would our pets say about us if they could talk?',
+    'What weird tradition should we start?',
+    'What emoji is our relationship today?'
+  ],
+  life: [
+    'What has been weighing on your mind lately?',
+    'What is one thing you need more support with?',
+    'What are you trying to become better at?',
+    'What is something you are proud of but have not said out loud?',
+    'What would make this week feel lighter?',
+    'What boundary would help you feel healthier?',
+    'What decision are you avoiding?',
+    'What is one dream you want us to protect?',
+    'What are you learning about yourself right now?',
+    'What would future us thank us for doing today?'
+  ]
+};
 const gothicFlowPath = [
   { x: 7, y: 11 },
   { x: 21, y: 12 },
@@ -236,6 +281,7 @@ const assetDialogTitle = $('#assetDialogTitle');
 const assetSearchForm = $('#assetSearchForm');
 const assetSearchInput = $('#assetSearchInput');
 const assetResults = $('#assetResults');
+const pictureUploadInput = $('#pictureUploadInput');
 
 function refreshIcons() {
   if (window.lucide) {
@@ -570,6 +616,64 @@ function resizeCursorUpload(file) {
   });
 }
 
+function resizePictureUpload(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxSize = 1400;
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve({
+          url: canvas.toDataURL('image/jpeg', 0.88),
+          width: canvas.width,
+          height: canvas.height,
+          title: file.name?.replace(/\.[^.]+$/, '') || 'Picture'
+        });
+      };
+      image.onerror = reject;
+      image.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function pictureFrameConfig(data = {}) {
+  return pictureFrames.find((frame) => frame.id === data.frame) || pictureFrames[1];
+}
+
+function questionCategory(data = {}) {
+  return questionPresets[data.questionType] ? data.questionType : 'romantic';
+}
+
+function activeQuestionText(data = {}) {
+  const category = questionCategory(data);
+  const questions = questionPresets[category];
+  const index = Math.abs(Number(data.questionIndex) || 0) % questions.length;
+  return questions[index];
+}
+
+function questionStyle(data = {}, target = 'question') {
+  const prefix = target === 'answer' ? 'answer' : 'question';
+  const defaultSize = target === 'answer' ? 17 : 20;
+  const defaultWeight = target === 'answer' ? '500' : '800';
+  return {
+    color: data[`${prefix}Color`] || '#050406',
+    font: wordFont({ fontFamily: data[`${prefix}FontFamily`] }),
+    size: clamp(Number(data[`${prefix}FontSize`]) || defaultSize, 10, 72),
+    weight: data[`${prefix}Bold`] ? '800' : defaultWeight,
+    style: data[`${prefix}Italic`] ? 'italic' : 'normal'
+  };
+}
+
 function createHearts() {
   const field = $('#heartField');
   field.innerHTML = '';
@@ -897,6 +1001,21 @@ function setWordVisualVars(target, data = {}) {
   target.style.setProperty('--word-style', data.italic ? 'italic' : 'normal');
 }
 
+function setQuestionVisualVars(target, data = {}) {
+  const prompt = questionStyle(data, 'question');
+  const answer = questionStyle(data, 'answer');
+  target.style.setProperty('--question-color', prompt.color);
+  target.style.setProperty('--question-font', prompt.font);
+  target.style.setProperty('--question-size', `${prompt.size}px`);
+  target.style.setProperty('--question-weight', prompt.weight);
+  target.style.setProperty('--question-style', prompt.style);
+  target.style.setProperty('--answer-color', answer.color);
+  target.style.setProperty('--answer-font', answer.font);
+  target.style.setProperty('--answer-size', `${answer.size}px`);
+  target.style.setProperty('--answer-weight', answer.weight);
+  target.style.setProperty('--answer-style', answer.style);
+}
+
 function shapeConfig(data = {}) {
   return widgetShapes.find((shape) => shape.id === data.shape) || widgetShapes[0];
 }
@@ -959,7 +1078,7 @@ function clearWidgetSelection() {
 
 function isPassiveWidgetTarget(event, widget) {
   const target = event.target;
-  if (target.closest('.widget-menu, .move-handle, .resize-handle, button, input, select, textarea, audio')) {
+  if (target.closest('.widget-menu, .move-handle, .resize-handle, button, input, select, textarea, audio, [contenteditable="true"]')) {
     return false;
   }
   if (widget.type === 'canvas' && state.selectedTool === 'brush' && target.closest('canvas')) {
@@ -1211,6 +1330,182 @@ function appendShapeControls(menu, widget, element) {
   menu.appendChild(shapeRow);
 }
 
+function applyPictureFrame(element, data = {}) {
+  const picture = $('.picture-widget', element);
+  if (!picture) return;
+  const frame = pictureFrameConfig(data);
+  pictureFrames.forEach((item) => picture.classList.remove(`picture-frame-${item.id}`));
+  picture.classList.add(`picture-frame-${frame.id}`);
+}
+
+function appendPictureFrameControls(menu, widget, element) {
+  const frameRow = document.createElement('div');
+  frameRow.className = 'frame-control-row';
+  pictureFrames.forEach((frame) => {
+    const button = document.createElement('button');
+    button.className = `frame-button frame-${frame.id}`;
+    button.type = 'button';
+    button.title = frame.label;
+    button.setAttribute('aria-label', frame.label);
+    button.classList.toggle('active', pictureFrameConfig(widgetData(widget)).id === frame.id);
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const nextData = setWidgetData(widget, { ...widgetData(widget), frame: frame.id });
+      scheduleWidgetSave(widget, { data: nextData }, 120);
+      applyPictureFrame(element, nextData);
+      $$('.frame-button', frameRow).forEach((item) => item.classList.toggle('active', item === button));
+    });
+    frameRow.appendChild(button);
+  });
+  menu.appendChild(frameRow);
+}
+
+function applyQuestionContent(element, data = {}) {
+  setQuestionVisualVars(element, data);
+  const prompt = $('.question-prompt', element);
+  if (prompt) prompt.textContent = activeQuestionText(data);
+}
+
+function appendQuestionTypeControls(menu, widget, element) {
+  const typeRow = document.createElement('div');
+  typeRow.className = 'question-type-row';
+  const typeMeta = [
+    { id: 'romantic', label: 'Romantic', icon: 'heart' },
+    { id: 'goofy', label: 'Goofy', icon: 'laugh' },
+    { id: 'life', label: 'Life', icon: 'sparkles' }
+  ];
+
+  typeMeta.forEach((type) => {
+    const button = document.createElement('button');
+    button.className = 'question-type-button';
+    button.type = 'button';
+    button.title = type.label;
+    button.dataset.questionType = type.id;
+    button.innerHTML = `<i data-lucide="${type.icon}"></i><span>${type.label}</span>`;
+    button.classList.toggle('active', questionCategory(widgetData(widget)) === type.id);
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const nextData = setWidgetData(widget, { ...widgetData(widget), questionType: type.id, questionIndex: 0 });
+      scheduleWidgetSave(widget, { data: nextData }, 120);
+      applyQuestionContent(element, nextData);
+      $$('.question-type-button', typeRow).forEach((item) => item.classList.toggle('active', item === button));
+    });
+    typeRow.appendChild(button);
+  });
+
+  const nextButton = document.createElement('button');
+  nextButton.className = 'mini-button question-next-button';
+  nextButton.type = 'button';
+  nextButton.title = 'Next question';
+  nextButton.innerHTML = '<i data-lucide="shuffle"></i>';
+  nextButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const current = widgetData(widget);
+    const category = questionCategory(current);
+    const count = questionPresets[category].length;
+    const nextData = setWidgetData(widget, {
+      ...current,
+      questionType: category,
+      questionIndex: ((Number(current.questionIndex) || 0) + 1) % count
+    });
+    scheduleWidgetSave(widget, { data: nextData }, 120);
+    applyQuestionContent(element, nextData);
+  });
+  typeRow.appendChild(nextButton);
+  menu.appendChild(typeRow);
+}
+
+function appendQuestionTextControls(menu, widget, element, data, target) {
+  const prefix = target === 'answer' ? 'answer' : 'question';
+  const defaults = questionStyle(data, target);
+  const styleRow = document.createElement('div');
+  styleRow.className = `question-style-row ${prefix}-style-row`;
+
+  const fontSelect = document.createElement('select');
+  fontSelect.className = 'word-font-select question-font-select';
+  fontSelect.title = target === 'answer' ? 'Comment font' : 'Question font';
+  fontSelect.setAttribute('aria-label', fontSelect.title);
+  wordFonts.forEach((font) => {
+    const option = document.createElement('option');
+    option.value = font.value;
+    option.textContent = font.label;
+    option.selected = font.value === defaults.font;
+    fontSelect.appendChild(option);
+  });
+  fontSelect.addEventListener('change', (event) => {
+    event.stopPropagation();
+    const nextData = setWidgetData(widget, { ...widgetData(widget), [`${prefix}FontFamily`]: fontSelect.value });
+    scheduleWidgetSave(widget, { data: nextData }, 120);
+    applyQuestionContent(element, nextData);
+  });
+  styleRow.appendChild(fontSelect);
+
+  ['Bold', 'Italic'].forEach((label) => {
+    const key = `${prefix}${label}`;
+    const button = document.createElement('button');
+    button.className = `mini-button word-format-button ${label === 'Italic' ? 'italic' : ''}`.trim();
+    button.type = 'button';
+    button.title = `${target === 'answer' ? 'Comment' : 'Question'} ${label.toLowerCase()}`;
+    button.textContent = label[0];
+    button.classList.toggle('active', Boolean(data[key]));
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const nextData = setWidgetData(widget, { ...widgetData(widget), [key]: !widgetData(widget)[key] });
+      scheduleWidgetSave(widget, { data: nextData }, 120);
+      applyQuestionContent(element, nextData);
+      button.classList.toggle('active', Boolean(nextData[key]));
+    });
+    styleRow.appendChild(button);
+  });
+
+  const sizeControl = document.createElement('label');
+  sizeControl.className = 'word-size-control question-size-control';
+  sizeControl.title = target === 'answer' ? 'Comment text size' : 'Question text size';
+  sizeControl.innerHTML = '<i data-lucide="type"></i>';
+  const sizeInput = document.createElement('input');
+  sizeInput.type = 'range';
+  sizeInput.min = '10';
+  sizeInput.max = '72';
+  sizeInput.value = String(defaults.size);
+  sizeInput.setAttribute('aria-label', sizeControl.title);
+  sizeInput.addEventListener('input', (event) => {
+    event.stopPropagation();
+    const nextData = setWidgetData(widget, { ...widgetData(widget), [`${prefix}FontSize`]: Number(sizeInput.value) });
+    scheduleWidgetSave(widget, { data: nextData }, 120);
+    applyQuestionContent(element, nextData);
+  });
+  sizeControl.appendChild(sizeInput);
+  styleRow.appendChild(sizeControl);
+  menu.appendChild(styleRow);
+
+  const colorRow = document.createElement('div');
+  colorRow.className = `word-color-row question-color-row ${prefix}-color-row`;
+  colors.forEach((color) => {
+    const swatch = document.createElement('button');
+    swatch.className = 'mini-swatch word-color-swatch';
+    swatch.type = 'button';
+    swatch.title = target === 'answer' ? 'Comment color' : 'Question color';
+    swatch.dataset.color = color;
+    swatch.style.background = color;
+    swatch.classList.toggle('active', color === defaults.color);
+    swatch.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const nextData = setWidgetData(widget, { ...widgetData(widget), [`${prefix}Color`]: color });
+      scheduleWidgetSave(widget, { data: nextData }, 120);
+      applyQuestionContent(element, nextData);
+      updateSwatchSelection(colorRow, color);
+    });
+    colorRow.appendChild(swatch);
+  });
+  menu.appendChild(colorRow);
+}
+
+function appendQuestionControls(menu, widget, element, data) {
+  appendQuestionTypeControls(menu, widget, element);
+  appendQuestionTextControls(menu, widget, element, data, 'question');
+  appendQuestionTextControls(menu, widget, element, data, 'answer');
+}
+
 function widgetShell(widget) {
   const data = widgetData(widget);
   const element = document.createElement('article');
@@ -1227,6 +1522,7 @@ function widgetShell(widget) {
   element.style.setProperty('--widget-bg', data.background || 'rgba(255,255,255,0.84)');
   setWidgetVisualVars(element, data);
   setWordVisualVars(element, data);
+  setQuestionVisualVars(element, data);
   setMusicVisualVars(element, data);
 
   element.addEventListener('pointerdown', (event) => {
@@ -1260,15 +1556,17 @@ function widgetShell(widget) {
     element.appendChild(handle);
 
     const menu = document.createElement('div');
-    const deleteOnly = !(widget.type === 'canvas' || widget.type === 'wordbox' || widget.type === 'music');
+    const deleteOnly = !['canvas', 'wordbox', 'question', 'music', 'picture'].includes(widget.type);
     const menuType = widget.type === 'music'
       ? 'music-widget-menu'
-      : widget.type === 'wordbox'
+      : widget.type === 'wordbox' || widget.type === 'question'
         ? 'wordbox-widget-menu'
+        : widget.type === 'picture'
+          ? 'picture-widget-menu'
         : 'color-widget-menu';
     menu.className = `widget-menu ${deleteOnly ? 'delete-widget-menu' : menuType}`;
 
-    if (widget.type === 'canvas' || widget.type === 'wordbox' || widget.type === 'music') {
+    if (widget.type === 'canvas' || widget.type === 'wordbox' || widget.type === 'question' || widget.type === 'music') {
       const palette = widget.type === 'music' ? musicPlayerColors : widgetColors;
       const paletteRow = document.createElement('div');
       paletteRow.className = 'widget-color-row';
@@ -1329,10 +1627,20 @@ function widgetShell(widget) {
       if (widget.type === 'canvas' || widget.type === 'wordbox') {
         appendShapeControls(menu, widget, element);
       }
+      if (widget.type === 'question') {
+        appendShapeControls(menu, widget, element);
+      }
 
       if (widget.type === 'wordbox') {
         appendWordboxControls(menu, widget, element, data);
       }
+      if (widget.type === 'question') {
+        appendQuestionControls(menu, widget, element, data);
+      }
+    }
+
+    if (widget.type === 'picture') {
+      appendPictureFrameControls(menu, widget, element);
     }
 
     const remove = document.createElement('button');
@@ -1461,7 +1769,7 @@ function startResize(event, widget, element) {
     originalWidth: widget.width,
     originalHeight: widget.height,
     aspectRatio: widget.width / widget.height,
-    keepRatio: ['music', 'sticker', 'gif'].includes(widget.type)
+    keepRatio: ['music', 'sticker', 'picture', 'gif'].includes(widget.type)
   };
 
   event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -1475,8 +1783,8 @@ function resizeWidget(event) {
   event.preventDefault();
 
   const { widget, element, startX, startY, originalWidth, originalHeight, aspectRatio, keepRatio } = state.resizing;
-  const minWidth = ['music', 'sticker', 'gif'].includes(widget.type) ? 84 : 48;
-  const minHeight = widget.type === 'music' ? 84 : ['sticker', 'gif'].includes(widget.type) ? 72 : 48;
+  const minWidth = ['music', 'sticker', 'picture', 'gif'].includes(widget.type) ? 84 : 48;
+  const minHeight = widget.type === 'music' ? 84 : ['sticker', 'picture', 'gif'].includes(widget.type) ? 72 : 48;
   let width = Math.max(minWidth, originalWidth + (event.clientX - startX) / state.viewport.zoom);
   let height = Math.max(minHeight, originalHeight + (event.clientY - startY) / state.viewport.zoom);
 
@@ -1920,6 +2228,58 @@ function renderWordboxWidget(widget) {
   return element;
 }
 
+function plainTextPaste(event) {
+  event.preventDefault();
+  const text = event.clipboardData?.getData('text/plain') || '';
+  document.execCommand('insertText', false, text);
+}
+
+function renderQuestionWidget(widget) {
+  const data = widgetData(widget);
+  const element = widgetShell(widget);
+  const question = document.createElement('section');
+  question.className = 'question-widget';
+
+  const prompt = document.createElement('div');
+  prompt.className = 'question-prompt';
+  prompt.textContent = activeQuestionText(data);
+
+  const comment = document.createElement('div');
+  comment.className = 'question-comment';
+  comment.contentEditable = String(canEdit());
+  comment.spellcheck = true;
+  comment.textContent = data.commentText || '';
+  comment.addEventListener('input', () => {
+    const nextData = setWidgetData(widget, { ...widgetData(widget), commentText: comment.innerText.replace(/\r\n/g, '\n') });
+    scheduleWidgetSave(widget, { data: nextData });
+  });
+  comment.addEventListener('paste', plainTextPaste);
+
+  question.appendChild(prompt);
+  question.appendChild(comment);
+  element.appendChild(question);
+  return element;
+}
+
+function renderPictureWidget(widget) {
+  const data = widgetData(widget);
+  const element = widgetShell(widget);
+  const picture = document.createElement('figure');
+  picture.className = 'picture-widget';
+  applyPictureFrame(element, data);
+
+  const image = document.createElement('img');
+  image.alt = data.title || 'Uploaded picture';
+  image.src = data.url || '';
+  image.draggable = false;
+  image.title = data.title || 'Picture';
+  picture.appendChild(image);
+
+  element.appendChild(picture);
+  applyPictureFrame(element, data);
+  return element;
+}
+
 function renderAssetWidget(widget) {
   const data = widgetData(widget);
   const element = widgetShell(widget);
@@ -2144,7 +2504,9 @@ function renderBoard() {
     let element;
     if (widget.type === 'canvas') element = renderCanvasWidget(widget);
     if (widget.type === 'wordbox') element = renderWordboxWidget(widget);
+    if (widget.type === 'question') element = renderQuestionWidget(widget);
     if (widget.type === 'music') element = renderMusicWidget(widget);
+    if (widget.type === 'picture') element = renderPictureWidget(widget);
     if (widget.type === 'sticker' || widget.type === 'gif') element = renderAssetWidget(widget);
     if (element) fragment.appendChild(element);
   });
@@ -2370,6 +2732,48 @@ async function createAssetWidget(asset) {
   assetResults.innerHTML = '';
 }
 
+function pictureRectForUpload(picture) {
+  const maxWidth = 390;
+  const maxHeight = 310;
+  const scale = Math.min(maxWidth / picture.width, maxHeight / picture.height, 1);
+  let width = Math.max(160, Math.round(picture.width * scale));
+  let height = Math.max(120, Math.round(picture.height * scale));
+  const ratio = picture.width / picture.height;
+
+  if (width / height > ratio) {
+    width = Math.round(height * ratio);
+  } else {
+    height = Math.round(width / ratio);
+  }
+  return centeredRect(width, height);
+}
+
+async function createPictureWidgetFromFile(file) {
+  if (!canEdit()) return;
+  const picture = await resizePictureUpload(file);
+  await createWidget('picture', pictureRectForUpload(picture), {
+    title: picture.title,
+    url: picture.url,
+    frame: 'classic',
+    naturalWidth: picture.width,
+    naturalHeight: picture.height
+  });
+}
+
+function defaultQuestionData() {
+  return {
+    questionType: 'romantic',
+    questionIndex: Math.floor(Math.random() * questionPresets.romantic.length),
+    commentText: '',
+    background: 'rgba(255,255,255,0.88)',
+    questionColor: '#050406',
+    questionFontSize: 21,
+    questionBold: true,
+    answerColor: '#24103d',
+    answerFontSize: 17
+  };
+}
+
 function centeredRect(width, height) {
   return {
     x: Math.round(Math.max(40, (boardViewport.scrollLeft + boardViewport.clientWidth / 2) / state.viewport.zoom - width / 2)),
@@ -2576,6 +2980,18 @@ cursorUploadInput.addEventListener('change', async () => {
   }
 });
 
+pictureUploadInput.addEventListener('change', async () => {
+  const [file] = pictureUploadInput.files || [];
+  if (!file) return;
+  try {
+    await createPictureWidgetFromFile(file);
+  } catch {
+    showToast('Picture could not be uploaded.');
+  } finally {
+    pictureUploadInput.value = '';
+  }
+});
+
 $$('.tool-button').forEach((button) => {
   button.addEventListener('click', () => {
     if (button.dataset.tool === 'music') {
@@ -2590,6 +3006,13 @@ $$('.tool-button').forEach((button) => {
       selectTool(null);
       if (canEdit()) {
         openAssetDialog();
+      }
+      return;
+    }
+    if (button.dataset.tool === 'picture') {
+      selectTool(null);
+      if (canEdit()) {
+        pictureUploadInput.click();
       }
       return;
     }
@@ -2656,7 +3079,7 @@ window.addEventListener('keydown', async (event) => {
 });
 
 boardViewport.addEventListener('pointerdown', (event) => {
-  if (event.button !== 0 || event.target !== board || ['canvas', 'wordbox'].includes(state.selectedTool)) return;
+  if (event.button !== 0 || event.target !== board || ['canvas', 'wordbox', 'question'].includes(state.selectedTool)) return;
   clearWidgetSelection();
   state.viewport.panning = {
     startX: event.clientX,
@@ -2694,7 +3117,7 @@ board.addEventListener('pointerdown', (event) => {
   if (!event.target.closest('.art-widget')) {
     clearWidgetSelection();
   }
-  if (!['canvas', 'wordbox'].includes(state.selectedTool)) return;
+  if (!['canvas', 'wordbox', 'question'].includes(state.selectedTool)) return;
   if (event.target !== board) return;
 
   const start = boardPoint(event);
@@ -2724,7 +3147,12 @@ board.addEventListener('pointerup', async (event) => {
 
   if (rect.width < 36 || rect.height < 36) return;
   try {
-    await createWidget(draft.type, rect, draft.type === 'wordbox' ? { text: '', background: 'rgba(255,255,255,0.84)' } : { background: 'rgba(255,255,255,0.84)' });
+    const data = draft.type === 'wordbox'
+      ? { text: '', background: 'rgba(255,255,255,0.84)' }
+      : draft.type === 'question'
+        ? defaultQuestionData()
+        : { background: 'rgba(255,255,255,0.84)' };
+    await createWidget(draft.type, rect, data);
   } catch (error) {
     showToast(error.message);
   }

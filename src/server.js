@@ -705,7 +705,7 @@ app.post('/api/widgets', requireAuth, async (req, res, next) => {
     }
 
     const type = String(req.body.type || '');
-    if (!['canvas', 'wordbox', 'music', 'sticker', 'gif'].includes(type)) {
+    if (!['canvas', 'wordbox', 'question', 'music', 'sticker', 'picture', 'gif'].includes(type)) {
       return res.status(400).json({ error: 'Choose a valid widget.' });
     }
 
@@ -727,8 +727,8 @@ app.post('/api/widgets', requireAuth, async (req, res, next) => {
       type,
       x: clampNumber(req.body.x, 120, -10000, 10000),
       y: clampNumber(req.body.y, 120, -10000, 10000),
-      width: clampNumber(req.body.width, ['music', 'sticker', 'gif'].includes(type) ? 300 : 260, 40, 3000),
-      height: clampNumber(req.body.height, type === 'music' ? 120 : ['sticker', 'gif'].includes(type) ? 240 : 180, 40, 3000),
+      width: clampNumber(req.body.width, ['music', 'sticker', 'picture', 'gif'].includes(type) ? 300 : 260, 40, 3000),
+      height: clampNumber(req.body.height, type === 'music' ? 120 : ['sticker', 'picture', 'gif'].includes(type) ? 240 : 180, 40, 3000),
       zIndex: Number(maxRow?.max_z || 0) + 1,
       data: serializeData(req.body.data)
     };

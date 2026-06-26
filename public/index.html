@@ -83,6 +83,10 @@
           <i data-lucide="type"></i>
           <span>Wordbox</span>
         </button>
+        <button class="tool-button" data-tool="question" type="button" title="Question box">
+          <i data-lucide="message-circle-question"></i>
+          <span>Question</span>
+        </button>
         <button class="tool-button" data-tool="music" type="button" title="Music">
           <i data-lucide="music-2"></i>
           <span>Music</span>
@@ -91,11 +95,16 @@
           <i data-lucide="sticker"></i>
           <span>Sticker</span>
         </button>
+        <button class="tool-button" data-tool="picture" type="button" title="Picture">
+          <i data-lucide="image-plus"></i>
+          <span>Picture</span>
+        </button>
         <button class="tool-button" data-tool="brush" type="button" title="Brush">
           <i data-lucide="paintbrush"></i>
           <span>Brush</span>
         </button>
       </nav>
+      <input id="pictureUploadInput" type="file" accept="image/*" hidden />
 
       <aside id="brushPanel" class="brush-panel hidden" aria-label="Brush utensils">
         <div class="utensils">

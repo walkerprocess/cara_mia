@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS widgets (
   id TEXT PRIMARY KEY,
   exhibit_id TEXT NOT NULL REFERENCES exhibits(id) ON DELETE CASCADE,
   page_id TEXT REFERENCES exhibit_pages(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('canvas', 'wordbox', 'music', 'sticker', 'gif')),
+  type TEXT NOT NULL CHECK (type IN ('canvas', 'wordbox', 'question', 'music', 'sticker', 'picture', 'gif')),
   x DOUBLE PRECISION NOT NULL DEFAULT 120,
   y DOUBLE PRECISION NOT NULL DEFAULT 120,
   width DOUBLE PRECISION NOT NULL DEFAULT 260,

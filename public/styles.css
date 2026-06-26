@@ -811,6 +811,51 @@ select:focus {
   padding: 10px;
 }
 
+.question-widget {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 18px;
+  color: var(--answer-color, #24103d);
+  background: var(--widget-bg, rgba(255, 255, 255, 0.86));
+  border-radius: inherit;
+  clip-path: var(--widget-clip, none);
+  overflow: hidden;
+}
+
+.external-controls .question-widget {
+  padding: 10px;
+}
+
+.question-prompt {
+  color: var(--question-color, #050406);
+  font-family: var(--question-font, "Bricolage Grotesque", Arial, sans-serif);
+  font-size: var(--question-size, 20px);
+  font-style: var(--question-style, normal);
+  font-weight: var(--question-weight, 800);
+  line-height: 1.16;
+  white-space: pre-wrap;
+}
+
+.question-comment {
+  min-height: 0;
+  padding: 12px;
+  color: var(--answer-color, #24103d);
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(5, 4, 6, 0.08);
+  border-radius: 7px;
+  font-family: var(--answer-font, "Bricolage Grotesque", Arial, sans-serif);
+  font-size: var(--answer-size, 17px);
+  font-style: var(--answer-style, normal);
+  font-weight: var(--answer-weight, 500);
+  line-height: 1.28;
+  outline: none;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .media-widget {
   width: 100%;
   height: 100%;
@@ -826,6 +871,63 @@ select:focus {
   object-fit: contain;
   pointer-events: none;
   filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.32));
+}
+
+.picture-shell {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.picture-widget {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  margin: 0;
+  overflow: hidden;
+  background: #fff;
+  border-radius: var(--widget-radius, 8px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
+}
+
+.picture-widget img {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.picture-frame-clean {
+  padding: 0;
+  background: transparent;
+}
+
+.picture-frame-classic {
+  padding: 10px;
+  background: #fff;
+  border: 1px solid rgba(5, 4, 6, 0.12);
+}
+
+.picture-frame-polaroid {
+  padding: 14px 14px 42px;
+  background: #fff;
+  border: 1px solid rgba(5, 4, 6, 0.1);
+}
+
+.picture-frame-film {
+  padding: 16px;
+  background:
+    repeating-linear-gradient(90deg, #0a080b 0 10px, #fff 10px 15px, #0a080b 15px 25px) top / 100% 12px no-repeat,
+    repeating-linear-gradient(90deg, #0a080b 0 10px, #fff 10px 15px, #0a080b 15px 25px) bottom / 100% 12px no-repeat,
+    #0a080b;
+}
+
+.picture-frame-heart {
+  padding: 14px;
+  background: linear-gradient(135deg, #fff5f8, #f1bfd4);
+  border: 2px solid rgba(239, 49, 77, 0.32);
 }
 
 .sticker-shell,
@@ -1206,6 +1308,10 @@ select:focus {
   width: 268px;
 }
 
+.picture-widget-menu {
+  width: 220px;
+}
+
 .delete-widget-menu {
   width: auto;
   min-width: 36px;
@@ -1350,6 +1456,113 @@ select:focus {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
+}
+
+.frame-control-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.frame-button {
+  width: 100%;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 5px;
+}
+
+.frame-button::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  display: block;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.frame-classic::before {
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 1px rgba(5, 4, 6, 0.38);
+}
+
+.frame-polaroid::before {
+  height: 23px;
+  border: 3px solid #fff;
+  border-bottom-width: 9px;
+  box-shadow: 0 0 0 1px rgba(5, 4, 6, 0.34);
+}
+
+.frame-film::before {
+  background:
+    repeating-linear-gradient(90deg, #050406 0 4px, #fff 4px 6px, #050406 6px 10px);
+}
+
+.frame-heart::before {
+  background: #f1bfd4;
+  clip-path: polygon(50% 92%, 14% 58%, 6% 36%, 12% 18%, 27% 8%, 42% 14%, 50% 28%, 58% 14%, 73% 8%, 88% 18%, 94% 36%, 86% 58%);
+}
+
+.frame-button.active {
+  outline: 2px solid #ffc857;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.question-type-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 32px;
+  gap: 6px;
+}
+
+.question-type-button {
+  min-width: 0;
+  height: 30px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.question-type-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.question-type-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.question-type-button.active {
+  color: #050406;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.question-style-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px 28px minmax(76px, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.question-color-row {
+  max-height: 70px;
+  overflow-y: auto;
+  padding: 1px;
 }
 
 .border-width-control {
@@ -2105,7 +2318,7 @@ select:focus {
     bottom: 12px;
     left: 10px;
     width: auto;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     padding: 6px;
   }
 
@@ -2113,9 +2326,9 @@ select:focus {
     min-height: 48px;
     grid-template-columns: 1fr;
     justify-items: center;
-    gap: 3px;
-    padding: 4px;
-    font-size: 12px;
+    gap: 2px;
+    padding: 4px 2px;
+    font-size: 11px;
     text-align: center;
   }
 

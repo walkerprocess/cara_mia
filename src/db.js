@@ -15,7 +15,7 @@ let client;
 let exportTimer = null;
 let exportRunning = false;
 let exportQueued = false;
-const widgetTypeCheck = "type IN ('canvas', 'wordbox', 'music', 'sticker', 'gif')";
+const widgetTypeCheck = "type IN ('canvas', 'wordbox', 'question', 'music', 'sticker', 'picture', 'gif')";
 const exportColumns = {
   users: ['id', 'email', 'account_id', 'password_hash', 'email_verified', 'created_at'],
   exhibits: ['id', 'owner_user_id', 'title', 'created_at', 'updated_at'],
@@ -360,7 +360,7 @@ function migrateSqliteWidgetTypes() {
   const table = client
     .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'widgets'")
     .get();
-  if (!table || String(table.sql).includes("'sticker'")) return;
+  if (!table || (String(table.sql).includes("'picture'") && String(table.sql).includes("'question'"))) return;
 
   client.pragma('foreign_keys = OFF');
   try {
