@@ -27,6 +27,8 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, '..', 'public');
 const exhibitStreams = new Map();
+const startedAt = new Date();
+const revision = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null;
 
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
@@ -435,7 +437,14 @@ async function listExhibits(userId) {
 }
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'cara-mia', database: isPostgres ? 'postgres' : 'sqlite' });
+  res.json({
+    ok: true,
+    service: 'cara-mia',
+    database: isPostgres ? 'postgres' : 'sqlite',
+    startedAt: startedAt.toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    revision: revision ? revision.slice(0, 12) : null
+  });
 });
 
 app.post('/api/signup', async (req, res, next) => {
