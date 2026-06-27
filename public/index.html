@@ -43,7 +43,7 @@
             </span>
           </label>
           <button id="sendSignupCodeButton" class="secondary-button" type="button">Send verification code</button>
-          <div id="signupCodeRow" class="verify-code-row hidden">
+          <div id="signupCodeRow" class="verify-code-row">
             <label id="signupCodeField">
               <span>Verification code</span>
               <input id="signupCodeInput" name="code" autocomplete="one-time-code" inputmode="text" maxlength="6" />
@@ -285,7 +285,7 @@
           </label>
           <button class="primary-button" type="submit">Send reset code</button>
         </form>
-        <form id="resetPasswordForm" class="auth-form hidden">
+        <form id="resetPasswordForm" class="auth-form">
           <p id="resetPasswordNote" class="auth-note"></p>
           <input name="email" type="hidden" />
           <div id="resetCodeRow" class="verify-code-row">

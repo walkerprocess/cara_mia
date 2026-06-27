@@ -6,15 +6,29 @@ function smtpConfigured() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_PORT && (process.env.SMTP_FROM || process.env.SMTP_USER));
 }
 
+function resendConfigured() {
+  return Boolean(process.env.RESEND_API_KEY);
+}
+
+function emailFrom() {
+  return process.env.EMAIL_FROM
+    || process.env.RESEND_FROM
+    || process.env.SMTP_FROM
+    || process.env.SMTP_USER
+    || 'Cara Mia <onboarding@resend.dev>';
+}
+
 function emailConfigStatus() {
   const port = Number(process.env.SMTP_PORT);
   return {
-    configured: smtpConfigured(),
-    mode: smtpConfigured() ? 'smtp' : localMailFallback ? 'console' : 'missing',
+    configured: resendConfigured() || smtpConfigured(),
+    mode: resendConfigured() ? 'resend' : smtpConfigured() ? 'smtp' : localMailFallback ? 'console' : 'missing',
+    provider: resendConfigured() ? 'resend' : smtpConfigured() ? 'smtp' : null,
     host: process.env.SMTP_HOST || null,
     port: Number.isFinite(port) ? port : null,
     secure: smtpSecure(),
-    from: process.env.SMTP_FROM || process.env.SMTP_USER || null,
+    from: emailFrom(),
+    hasResendKey: resendConfigured(),
     hasUser: Boolean(process.env.SMTP_USER),
     hasPassword: Boolean(process.env.SMTP_PASS)
   };
@@ -67,6 +81,13 @@ function publicMailError(error) {
 }
 
 async function verifyEmailTransport() {
+  if (resendConfigured()) {
+    return {
+      ok: true,
+      hint: 'Resend is configured and sends over HTTPS, which works on Render free services.'
+    };
+  }
+
   if (!smtpConfigured()) {
     return {
       ok: false,
@@ -120,6 +141,40 @@ function codeHtml({ code, purpose, accountId }) {
 }
 
 async function sendAuthCode({ to, code, purpose, accountId }) {
+  if (resendConfigured()) {
+    let response;
+    try {
+      response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        signal: AbortSignal.timeout(10000),
+        body: JSON.stringify({
+          from: emailFrom(),
+          to,
+          subject: codeSubject(purpose),
+          text: codeText({ code, purpose, accountId }),
+          html: codeHtml({ code, purpose, accountId })
+        })
+      });
+    } catch (error) {
+      const next = new Error(`Resend email request failed. ${error.message} Check RESEND_API_KEY and EMAIL_FROM in Render.`);
+      next.statusCode = 502;
+      throw next;
+    }
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const message = payload.message || payload.error || `Resend returned HTTP ${response.status}.`;
+      const next = new Error(`${message} Check RESEND_API_KEY and EMAIL_FROM in Render.`);
+      next.statusCode = 502;
+      throw next;
+    }
+    return { mode: 'resend' };
+  }
+
   if (!smtpConfigured()) {
     if (localMailFallback) {
       console.log(`[Cara Mia] ${purpose} code for ${to}${accountId ? ` (${accountId})` : ''}: ${code}`);
@@ -134,7 +189,7 @@ async function sendAuthCode({ to, code, purpose, accountId }) {
   const transport = createTransport();
   try {
     await transport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      from: emailFrom(),
       to,
       subject: codeSubject(purpose),
       text: codeText({ code, purpose, accountId }),

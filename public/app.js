@@ -814,7 +814,7 @@ function validPasswordValue(password) {
 
 function resetSignupVerification() {
   state.pendingSignup = null;
-  signupCodeRow.classList.add('hidden');
+  signupCodeRow.classList.remove('hidden');
   signupCodeInput.value = '';
   signupVerifyNote.textContent = '';
   setVerifyStatus(signupEmailStatus, null);
@@ -858,7 +858,9 @@ function openPasswordResetDialog(email = '') {
   forgotPasswordForm.reset();
   resetPasswordForm.reset();
   forgotPasswordForm.classList.remove('hidden');
-  resetPasswordForm.classList.add('hidden');
+  resetPasswordForm.classList.remove('hidden');
+  resetPasswordForm.elements.email.value = String(email || '').trim().toLowerCase();
+  resetPasswordNote.textContent = '';
   resetNewPasswordField.classList.add('hidden');
   applyResetPasswordButton.classList.add('hidden');
   setVerifyStatus(resetCodeStatus, null);
@@ -885,6 +887,10 @@ function showResetPasswordStep(email) {
   clearFieldError(resetCodeField);
   clearFieldError(resetNewPasswordField);
   resetPasswordForm.elements.code.focus();
+}
+
+function resetDialogEmailValue() {
+  return String(resetPasswordForm.elements.email.value || forgotPasswordForm.elements.email.value || '').trim().toLowerCase();
 }
 
 function canEdit() {
@@ -3281,9 +3287,16 @@ resetPasswordForm.addEventListener('submit', async (event) => {
 });
 
 verifyResetCodeButton.addEventListener('click', async () => {
-  const email = String(resetPasswordForm.elements.email.value || '').trim().toLowerCase();
+  const email = resetDialogEmailValue();
   const code = resetPasswordForm.elements.code.value;
   clearFieldError(resetCodeField);
+  if (!validEmailValue(email) || !code) {
+    markFieldError(resetCodeField);
+    setVerifyStatus(resetCodeStatus, 'invalid');
+    showToast('Enter the email and reset code.');
+    return;
+  }
+  resetPasswordForm.elements.email.value = email;
   try {
     const { resetToken } = await api('/api/password/verify', {
       method: 'POST',
@@ -3312,10 +3325,23 @@ resetPasswordForm.elements.code.addEventListener('input', () => {
   applyResetPasswordButton.classList.add('hidden');
 });
 
+forgotPasswordForm.elements.email.addEventListener('input', () => {
+  resetPasswordForm.elements.email.value = String(forgotPasswordForm.elements.email.value || '').trim().toLowerCase();
+  state.pendingPasswordReset = null;
+  setVerifyStatus(resetCodeStatus, null);
+  resetNewPasswordField.classList.add('hidden');
+  applyResetPasswordButton.classList.add('hidden');
+});
+
 resetPasswordBackButton.addEventListener('click', () => {
   state.pendingPasswordReset = null;
-  resetPasswordForm.classList.add('hidden');
   forgotPasswordForm.classList.remove('hidden');
+  resetPasswordForm.classList.remove('hidden');
+  resetPasswordForm.reset();
+  resetPasswordNote.textContent = '';
+  resetNewPasswordField.classList.add('hidden');
+  applyResetPasswordButton.classList.add('hidden');
+  setVerifyStatus(resetCodeStatus, null);
   forgotPasswordForm.elements.email.focus();
 });
 
