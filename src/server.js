@@ -22,7 +22,7 @@ const {
   setSessionCookie,
   verifyPassword
 } = require('./auth');
-const { emailConfigStatus, sendAuthCode } = require('./mailer');
+const { emailConfigStatus, sendAuthCode, verifyEmailTransport } = require('./mailer');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -629,8 +629,12 @@ app.get('/health', (_req, res) => {
   });
 });
 
-app.get('/api/email/status', (_req, res) => {
-  res.json(emailConfigStatus());
+app.get('/api/email/status', async (req, res) => {
+  const status = emailConfigStatus();
+  if (String(req.query.check || '') === 'true') {
+    status.connection = await verifyEmailTransport();
+  }
+  res.json(status);
 });
 
 app.post('/api/signup/code', async (req, res, next) => {

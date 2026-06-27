@@ -784,12 +784,12 @@ function markFieldError(field) {
 function setVerifyStatus(element, status) {
   element.classList.remove('verified', 'invalid');
   if (status === 'verified') {
-    element.textContent = '✓';
+    element.textContent = '';
     element.classList.add('verified');
     return;
   }
   if (status === 'invalid') {
-    element.textContent = '×';
+    element.textContent = '';
     element.classList.add('invalid');
     return;
   }
@@ -3164,16 +3164,19 @@ sendSignupCodeButton.addEventListener('click', async () => {
     return;
   }
 
+  showSignupVerification(email);
+  signupVerifyNote.textContent = `Sending a verification code to ${email}...`;
   try {
     await api('/api/signup/code', {
       method: 'POST',
       body: JSON.stringify({ email })
     });
-    showSignupVerification(email);
+    signupVerifyNote.textContent = `Enter the 6-character code sent to ${email}.`;
     showToast('Verification code sent.');
   } catch (error) {
     markFieldError(signupEmailField);
     setVerifyStatus(signupEmailStatus, 'invalid');
+    signupVerifyNote.textContent = `Email did not send. ${error.message}`;
     showToast(error.message);
   }
 });
@@ -3222,14 +3225,21 @@ forgotPasswordButton.addEventListener('click', () => openPasswordResetDialog());
 forgotPasswordForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const email = String(new FormData(forgotPasswordForm).get('email') || '').trim().toLowerCase();
+  if (!validEmailValue(email)) {
+    showToast('Enter a valid email address.');
+    return;
+  }
+  showResetPasswordStep(email);
+  resetPasswordNote.textContent = `Sending a reset code to ${email}...`;
   try {
     await api('/api/password/forgot', {
       method: 'POST',
       body: JSON.stringify({ email })
     });
-    showResetPasswordStep(email);
+    resetPasswordNote.textContent = `Enter the code sent to ${email}.`;
     showToast('Reset code sent.');
   } catch (error) {
+    resetPasswordNote.textContent = `Email did not send. ${error.message}`;
     showToast(error.message);
   }
 });

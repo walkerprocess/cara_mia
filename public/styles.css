@@ -455,10 +455,18 @@ select:focus {
   border-color: rgba(11, 122, 61, 0.38);
 }
 
+.verify-status.verified::before {
+  content: "\2713";
+}
+
 .verify-status.invalid {
   color: #ef314d;
   background: rgba(255, 224, 229, 0.9);
   border-color: rgba(239, 49, 77, 0.42);
+}
+
+.verify-status.invalid::before {
+  content: "\00d7";
 }
 
 .verify-code-row {

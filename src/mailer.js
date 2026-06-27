@@ -7,11 +7,16 @@ function smtpConfigured() {
 }
 
 function emailConfigStatus() {
+  const port = Number(process.env.SMTP_PORT);
   return {
     configured: smtpConfigured(),
     mode: smtpConfigured() ? 'smtp' : localMailFallback ? 'console' : 'missing',
     host: process.env.SMTP_HOST || null,
-    from: process.env.SMTP_FROM || process.env.SMTP_USER || null
+    port: Number.isFinite(port) ? port : null,
+    secure: smtpSecure(),
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || null,
+    hasUser: Boolean(process.env.SMTP_USER),
+    hasPassword: Boolean(process.env.SMTP_PASS)
   };
 }
 
@@ -35,6 +40,46 @@ function createTransport() {
     secure: smtpSecure(),
     auth
   });
+}
+
+function publicMailError(error) {
+  const code = error?.code || error?.command || null;
+  const responseCode = error?.responseCode || null;
+  let hint = 'Check your SMTP settings in Render.';
+
+  if (responseCode === 535 || String(error?.message || '').includes('Username and Password not accepted')) {
+    hint = 'Gmail rejected the login. Use a 16-character Google App Password, not your normal Gmail password.';
+  } else if (responseCode === 534) {
+    hint = 'Gmail blocked SMTP login. Enable 2-Step Verification and create an App Password.';
+  } else if (code === 'ESOCKET' || code === 'ETIMEDOUT') {
+    hint = 'Render could not connect to the SMTP server. Check SMTP_HOST, SMTP_PORT, and SMTP_SECURE.';
+  }
+
+  return {
+    message: error?.message || 'SMTP check failed.',
+    code,
+    responseCode,
+    hint
+  };
+}
+
+async function verifyEmailTransport() {
+  if (!smtpConfigured()) {
+    return {
+      ok: false,
+      error: {
+        message: 'Email sending is not configured yet.',
+        hint: 'Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM in Render.'
+      }
+    };
+  }
+
+  try {
+    await createTransport().verify();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: publicMailError(error) };
+  }
 }
 
 function codeSubject(purpose) {
@@ -84,17 +129,25 @@ async function sendAuthCode({ to, code, purpose, accountId }) {
   }
 
   const transport = createTransport();
-  await transport.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to,
-    subject: codeSubject(purpose),
-    text: codeText({ code, purpose, accountId }),
-    html: codeHtml({ code, purpose, accountId })
-  });
+  try {
+    await transport.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject: codeSubject(purpose),
+      text: codeText({ code, purpose, accountId }),
+      html: codeHtml({ code, purpose, accountId })
+    });
+  } catch (error) {
+    const publicError = publicMailError(error);
+    const next = new Error(`${publicError.message} ${publicError.hint}`);
+    next.statusCode = 502;
+    throw next;
+  }
   return { mode: 'smtp' };
 }
 
 module.exports = {
   emailConfigStatus,
-  sendAuthCode
+  sendAuthCode,
+  verifyEmailTransport
 };
