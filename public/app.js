@@ -203,6 +203,7 @@ const state = {
   pendingAssetType: 'sticker',
   pendingPageAction: null,
   pendingSignup: null,
+  pendingPasswordReset: null,
   drawingFrame: null,
   pendingDrawPoint: null,
   activeDrawingCanvas: null,
@@ -234,11 +235,17 @@ const loginPanel = $('#loginPanel');
 const signupPanel = $('#signupPanel');
 const loginForm = $('#loginForm');
 const signupForm = $('#signupForm');
-const signupVerifyForm = $('#signupVerifyForm');
 const signupVerifyNote = $('#signupVerifyNote');
 const forgotPasswordButton = $('#forgotPasswordButton');
-const resendSignupCodeButton = $('#resendSignupCodeButton');
-const editSignupDetailsButton = $('#editSignupDetailsButton');
+const signupEmailField = $('#signupEmailField');
+const signupEmailStatus = $('#signupEmailStatus');
+const sendSignupCodeButton = $('#sendSignupCodeButton');
+const signupCodeRow = $('#signupCodeRow');
+const signupCodeField = $('#signupCodeField');
+const signupCodeInput = $('#signupCodeInput');
+const verifySignupCodeButton = $('#verifySignupCodeButton');
+const signupAccountField = $('#signupAccountField');
+const signupPasswordField = $('#signupPasswordField');
 const showSignupButton = $('#showSignupButton');
 const showLoginButton = $('#showLoginButton');
 const board = $('#board');
@@ -266,6 +273,7 @@ const colorRail = $('#colorRail');
 const toast = $('#toast');
 const shareDialog = $('#shareDialog');
 const shareForm = $('#shareForm');
+const shareList = $('#shareList');
 const pageDialog = $('#pageDialog');
 const pageForm = $('#pageForm');
 const pageDialogTitle = $('#pageDialogTitle');
@@ -296,6 +304,11 @@ const passwordResetDialog = $('#passwordResetDialog');
 const forgotPasswordForm = $('#forgotPasswordForm');
 const resetPasswordForm = $('#resetPasswordForm');
 const resetPasswordNote = $('#resetPasswordNote');
+const resetCodeField = $('#resetCodeField');
+const resetCodeStatus = $('#resetCodeStatus');
+const verifyResetCodeButton = $('#verifyResetCodeButton');
+const resetNewPasswordField = $('#resetNewPasswordField');
+const applyResetPasswordButton = $('#applyResetPasswordButton');
 const resetPasswordBackButton = $('#resetPasswordBackButton');
 
 function refreshIcons() {
@@ -760,18 +773,67 @@ function setView(view) {
   studioView.classList.toggle('hidden', view !== 'studio');
 }
 
-function showSignupDetails() {
-  signupForm.classList.remove('hidden');
-  signupVerifyForm.classList.add('hidden');
+function clearFieldError(field) {
+  field?.classList.remove('field-error');
 }
 
-function showSignupVerification(email, accountId) {
-  state.pendingSignup = { email, accountId };
-  signupForm.classList.add('hidden');
-  signupVerifyForm.classList.remove('hidden');
+function markFieldError(field) {
+  field?.classList.add('field-error');
+}
+
+function setVerifyStatus(element, status) {
+  element.classList.remove('verified', 'invalid');
+  if (status === 'verified') {
+    element.textContent = '✓';
+    element.classList.add('verified');
+    return;
+  }
+  if (status === 'invalid') {
+    element.textContent = '×';
+    element.classList.add('invalid');
+    return;
+  }
+  element.textContent = '';
+}
+
+function signupEmail() {
+  return String(signupForm.elements.email.value || '').trim().toLowerCase();
+}
+
+function validEmailValue(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
+}
+
+function validAccountIdValue(accountId) {
+  return /^[a-z0-9_.-]{3,32}$/.test(String(accountId || '').trim().toLowerCase());
+}
+
+function validPasswordValue(password) {
+  return String(password || '').length >= 8;
+}
+
+function resetSignupVerification() {
+  state.pendingSignup = null;
+  signupCodeRow.classList.add('hidden');
+  signupCodeInput.value = '';
+  signupVerifyNote.textContent = '';
+  setVerifyStatus(signupEmailStatus, null);
+  clearFieldError(signupEmailField);
+  clearFieldError(signupCodeField);
+}
+
+function showSignupDetails() {
+  signupForm.classList.remove('hidden');
+  resetSignupVerification();
+}
+
+function showSignupVerification(email) {
+  state.pendingSignup = { email, verified: false };
+  signupCodeRow.classList.remove('hidden');
   signupVerifyNote.textContent = `Enter the 6-character code sent to ${email}.`;
-  signupVerifyForm.elements.code.value = '';
-  signupVerifyForm.elements.code.focus();
+  signupCodeInput.value = '';
+  setVerifyStatus(signupEmailStatus, null);
+  signupCodeInput.focus();
 }
 
 function showLogin() {
@@ -792,10 +854,16 @@ function renderAccountSettings() {
 }
 
 function openPasswordResetDialog(email = '') {
+  state.pendingPasswordReset = null;
   forgotPasswordForm.reset();
   resetPasswordForm.reset();
   forgotPasswordForm.classList.remove('hidden');
   resetPasswordForm.classList.add('hidden');
+  resetNewPasswordField.classList.add('hidden');
+  applyResetPasswordButton.classList.add('hidden');
+  setVerifyStatus(resetCodeStatus, null);
+  clearFieldError(resetCodeField);
+  clearFieldError(resetNewPasswordField);
   if (email) {
     forgotPasswordForm.elements.email.value = email;
   }
@@ -804,12 +872,18 @@ function openPasswordResetDialog(email = '') {
 }
 
 function showResetPasswordStep(email) {
+  state.pendingPasswordReset = { email, resetToken: null };
   forgotPasswordForm.classList.add('hidden');
   resetPasswordForm.classList.remove('hidden');
   resetPasswordForm.elements.email.value = email;
-  resetPasswordNote.textContent = `Enter the code sent to ${email}, then choose a new password.`;
+  resetPasswordNote.textContent = `Enter the code sent to ${email}.`;
   resetPasswordForm.elements.code.value = '';
   resetPasswordForm.elements.newPassword.value = '';
+  resetNewPasswordField.classList.add('hidden');
+  applyResetPasswordButton.classList.add('hidden');
+  setVerifyStatus(resetCodeStatus, null);
+  clearFieldError(resetCodeField);
+  clearFieldError(resetNewPasswordField);
   resetPasswordForm.elements.code.focus();
 }
 
@@ -913,6 +987,74 @@ function setControlsForRole() {
   if (!editable) {
     selectTool(null);
   }
+}
+
+function shareRoleLabel(role) {
+  return role === 'collaborator' ? 'Collaborator' : 'Spectator';
+}
+
+function renderShareList(shares = []) {
+  shareList.innerHTML = '';
+  if (!shares.length) {
+    shareList.innerHTML = '<p class="empty-people">No one has been added yet.</p>';
+    return;
+  }
+
+  shares.forEach((share) => {
+    const row = document.createElement('article');
+    row.className = 'person-row';
+    row.innerHTML = `
+      <div class="person-meta">
+        <strong></strong>
+        <small></small>
+      </div>
+      <span class="person-role"></span>
+      <button class="secondary-button compact person-role-button" type="button"></button>
+      <button class="icon-button person-remove-button" type="button" title="Remove" aria-label="Remove"><i data-lucide="x"></i></button>
+    `;
+    $('strong', row).textContent = share.user?.accountId || 'Unknown';
+    $('small', row).textContent = share.user?.email || '';
+    $('.person-role', row).textContent = shareRoleLabel(share.role);
+
+    const roleButton = $('.person-role-button', row);
+    const nextRole = share.role === 'collaborator' ? 'viewer' : 'collaborator';
+    roleButton.textContent = share.role === 'collaborator' ? 'Demote to spectator' : 'Promote to collaborator';
+    roleButton.addEventListener('click', async () => {
+      try {
+        await api(`/api/exhibits/${state.exhibit.id}/shares/${share.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ role: nextRole })
+        });
+        await loadShareList();
+        showToast('Permission updated.');
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+
+    $('.person-remove-button', row).addEventListener('click', async () => {
+      try {
+        await api(`/api/exhibits/${state.exhibit.id}/shares/${share.id}`, { method: 'DELETE' });
+        await loadShareList();
+        showToast('Person removed.');
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+
+    shareList.appendChild(row);
+  });
+  refreshIcons();
+}
+
+async function loadShareList() {
+  if (!state.exhibit?.canShare) {
+    shareList.innerHTML = '<p class="empty-people">Only the owner can manage people.</p>';
+    return;
+  }
+  shareList.innerHTML = '<p class="empty-people">Loading...</p>';
+  const { shares } = await api(`/api/exhibits/${state.exhibit.id}/shares`);
+  renderShareList(shares);
 }
 
 function widgetData(widget) {
@@ -2959,63 +3101,117 @@ loginForm.addEventListener('submit', async (event) => {
 signupForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(signupForm);
-  try {
-    const result = await api('/api/signup', {
-      method: 'POST',
-      body: JSON.stringify({
-        email: form.get('email'),
-        accountId: form.get('accountId'),
-        password: form.get('password')
-      })
-    });
-    showSignupVerification(result.email || form.get('email'), result.accountId || form.get('accountId'));
-    showToast('Verification code sent.');
-  } catch (error) {
-    showToast(error.message);
-  }
-});
+  const email = signupEmail();
+  const accountId = String(form.get('accountId') || '').trim().toLowerCase();
+  const password = String(form.get('password') || '');
+  [signupEmailField, signupCodeField, signupAccountField, signupPasswordField].forEach(clearFieldError);
 
-signupVerifyForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  if (!state.pendingSignup) return;
-  const form = new FormData(signupVerifyForm);
+  if (!validEmailValue(email)) {
+    markFieldError(signupEmailField);
+    setVerifyStatus(signupEmailStatus, 'invalid');
+    showToast('Enter a valid email address.');
+    return;
+  }
+  if (!state.pendingSignup?.verified || state.pendingSignup.email !== email) {
+    markFieldError(signupEmailField);
+    markFieldError(signupCodeField);
+    setVerifyStatus(signupEmailStatus, 'invalid');
+    showToast('Verify your email before creating the account.');
+    return;
+  }
+  if (!validAccountIdValue(accountId)) {
+    markFieldError(signupAccountField);
+    showToast('Use 3-32 letters, numbers, dots, dashes, or underscores for the account id.');
+    return;
+  }
+  if (!validPasswordValue(password)) {
+    markFieldError(signupPasswordField);
+    showToast('Use a password with at least 8 characters.');
+    return;
+  }
+
   try {
-    const { user } = await api('/api/signup/verify', {
+    const { user } = await api('/api/signup', {
       method: 'POST',
       body: JSON.stringify({
-        email: state.pendingSignup.email,
-        accountId: state.pendingSignup.accountId,
-        code: form.get('code')
+        email,
+        accountId,
+        password
       })
     });
     state.user = user;
     state.pendingSignup = null;
     signupForm.reset();
-    signupVerifyForm.reset();
+    resetSignupVerification();
     await enterStudio();
+    showToast('Account created.');
+  } catch (error) {
+    const message = error.message.toLowerCase();
+    if (message.includes('email')) markFieldError(signupEmailField);
+    if (message.includes('account')) markFieldError(signupAccountField);
+    if (message.includes('password')) markFieldError(signupPasswordField);
+    showToast(error.message);
+  }
+});
+
+sendSignupCodeButton.addEventListener('click', async () => {
+  const email = signupEmail();
+  [signupEmailField, signupCodeField].forEach(clearFieldError);
+  if (!validEmailValue(email)) {
+    markFieldError(signupEmailField);
+    setVerifyStatus(signupEmailStatus, 'invalid');
+    showToast('Enter a valid email address.');
+    return;
+  }
+
+  try {
+    await api('/api/signup/code', {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+    showSignupVerification(email);
+    showToast('Verification code sent.');
+  } catch (error) {
+    markFieldError(signupEmailField);
+    setVerifyStatus(signupEmailStatus, 'invalid');
+    showToast(error.message);
+  }
+});
+
+verifySignupCodeButton.addEventListener('click', async () => {
+  const email = signupEmail();
+  const code = signupCodeInput.value;
+  clearFieldError(signupCodeField);
+  if (!validEmailValue(email) || !code) {
+    markFieldError(signupCodeField);
+    setVerifyStatus(signupEmailStatus, 'invalid');
+    showToast('Enter the code from your email.');
+    return;
+  }
+
+  try {
+    await api('/api/signup/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ email, code })
+    });
+    state.pendingSignup = { email, verified: true };
+    setVerifyStatus(signupEmailStatus, 'verified');
+    signupVerifyNote.textContent = 'Email verified. Finish the account details and create the account.';
     showToast('Email verified.');
   } catch (error) {
+    markFieldError(signupCodeField);
+    setVerifyStatus(signupEmailStatus, 'invalid');
     showToast(error.message);
   }
 });
 
-resendSignupCodeButton.addEventListener('click', async () => {
-  if (!state.pendingSignup) return;
-  try {
-    await api('/api/signup/resend', {
-      method: 'POST',
-      body: JSON.stringify(state.pendingSignup)
-    });
-    showToast('Verification code sent again.');
-  } catch (error) {
-    showToast(error.message);
-  }
+signupForm.elements.email.addEventListener('input', () => {
+  resetSignupVerification();
 });
 
-editSignupDetailsButton.addEventListener('click', () => {
-  signupForm.elements.email.value = state.pendingSignup?.email || signupForm.elements.email.value;
-  signupForm.elements.accountId.value = state.pendingSignup?.accountId || signupForm.elements.accountId.value;
-  showSignupDetails();
+signupCodeInput.addEventListener('input', () => {
+  clearFieldError(signupCodeField);
+  setVerifyStatus(signupEmailStatus, null);
 });
 
 showSignupButton.addEventListener('click', showSignup);
@@ -3041,16 +3237,29 @@ forgotPasswordForm.addEventListener('submit', async (event) => {
 resetPasswordForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(resetPasswordForm);
+  clearFieldError(resetNewPasswordField);
+  if (!state.pendingPasswordReset?.resetToken) {
+    markFieldError(resetCodeField);
+    showToast('Verify the reset code first.');
+    return;
+  }
+  if (!validPasswordValue(form.get('newPassword'))) {
+    markFieldError(resetNewPasswordField);
+    showToast('Use a password with at least 8 characters.');
+    return;
+  }
+
   try {
     const { user } = await api('/api/password/reset', {
       method: 'POST',
       body: JSON.stringify({
         email: form.get('email'),
-        code: form.get('code'),
+        resetToken: state.pendingPasswordReset.resetToken,
         newPassword: form.get('newPassword')
       })
     });
     state.user = user;
+    state.pendingPasswordReset = null;
     passwordResetDialog.close();
     forgotPasswordForm.reset();
     resetPasswordForm.reset();
@@ -3061,7 +3270,40 @@ resetPasswordForm.addEventListener('submit', async (event) => {
   }
 });
 
+verifyResetCodeButton.addEventListener('click', async () => {
+  const email = String(resetPasswordForm.elements.email.value || '').trim().toLowerCase();
+  const code = resetPasswordForm.elements.code.value;
+  clearFieldError(resetCodeField);
+  try {
+    const { resetToken } = await api('/api/password/verify', {
+      method: 'POST',
+      body: JSON.stringify({ email, code })
+    });
+    state.pendingPasswordReset = { email, resetToken };
+    setVerifyStatus(resetCodeStatus, 'verified');
+    resetPasswordNote.textContent = 'Code verified. Choose a new password.';
+    resetNewPasswordField.classList.remove('hidden');
+    applyResetPasswordButton.classList.remove('hidden');
+    resetPasswordForm.elements.newPassword.focus();
+    showToast('Reset code verified.');
+  } catch (error) {
+    state.pendingPasswordReset = { email, resetToken: null };
+    setVerifyStatus(resetCodeStatus, 'invalid');
+    markFieldError(resetCodeField);
+    showToast(error.message);
+  }
+});
+
+resetPasswordForm.elements.code.addEventListener('input', () => {
+  if (!state.pendingPasswordReset?.resetToken) return;
+  state.pendingPasswordReset.resetToken = null;
+  setVerifyStatus(resetCodeStatus, null);
+  resetNewPasswordField.classList.add('hidden');
+  applyResetPasswordButton.classList.add('hidden');
+});
+
 resetPasswordBackButton.addEventListener('click', () => {
+  state.pendingPasswordReset = null;
   resetPasswordForm.classList.add('hidden');
   forgotPasswordForm.classList.remove('hidden');
   forgotPasswordForm.elements.email.focus();
@@ -3330,9 +3572,14 @@ board.addEventListener('pointerup', async (event) => {
   }
 });
 
-shareButton.addEventListener('click', () => {
+shareButton.addEventListener('click', async () => {
   if (!state.exhibit?.canShare) return;
   shareDialog.showModal();
+  try {
+    await loadShareList();
+  } catch (error) {
+    showToast(error.message);
+  }
 });
 
 $$('.modal-close').forEach((button) => {
@@ -3352,8 +3599,8 @@ shareForm.addEventListener('submit', async (event) => {
       })
     });
     shareForm.reset();
-    shareDialog.close();
-    showToast('Shared.');
+    await loadShareList();
+    showToast('People updated.');
   } catch (error) {
     showToast(error.message);
   }

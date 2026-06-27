@@ -35,30 +35,32 @@
       <section id="signupPanel" class="auth-panel hidden">
         <h1>Cara Mia</h1>
         <form id="signupForm" class="auth-form">
-          <label>
+          <label id="signupEmailField">
             <span>Email</span>
-            <input name="email" type="email" autocomplete="email" required />
+            <span class="verify-input-row">
+              <input name="email" type="email" autocomplete="email" required />
+              <span id="signupEmailStatus" class="verify-status" aria-live="polite"></span>
+            </span>
           </label>
-          <label>
+          <button id="sendSignupCodeButton" class="secondary-button" type="button">Send verification code</button>
+          <div id="signupCodeRow" class="verify-code-row hidden">
+            <label id="signupCodeField">
+              <span>Verification code</span>
+              <input id="signupCodeInput" name="code" autocomplete="one-time-code" inputmode="text" maxlength="6" />
+            </label>
+            <button id="verifySignupCodeButton" class="secondary-button" type="button">Verify</button>
+          </div>
+          <p id="signupVerifyNote" class="auth-note"></p>
+          <label id="signupAccountField">
             <span>Account ID</span>
             <input name="accountId" autocomplete="username" required />
           </label>
-          <label>
+          <label id="signupPasswordField">
             <span>Password</span>
             <input name="password" type="password" autocomplete="new-password" minlength="8" required />
           </label>
-          <button class="primary-button" type="submit">Send verification code</button>
+          <button id="signupCreateButton" class="primary-button" type="submit">Create account</button>
           <button id="showLoginButton" class="secondary-button" type="button">Back to login</button>
-        </form>
-        <form id="signupVerifyForm" class="auth-form hidden">
-          <p id="signupVerifyNote" class="auth-note"></p>
-          <label>
-            <span>Verification code</span>
-            <input name="code" autocomplete="one-time-code" inputmode="text" maxlength="6" required />
-          </label>
-          <button class="primary-button" type="submit">Verify email</button>
-          <button id="resendSignupCodeButton" class="secondary-button" type="button">Send code again</button>
-          <button id="editSignupDetailsButton" class="text-button" type="button">Edit signup details</button>
         </form>
       </section>
     </main>
@@ -79,7 +81,9 @@
           <i data-lucide="download"></i>
         </button>
         <span id="rolePill" class="role-pill">OWNER</span>
-        <button id="shareButton" class="share-button" type="button">SHARE</button>
+        <button id="shareButton" class="icon-button people-button" type="button" title="People" aria-label="People">
+          <i data-lucide="users"></i>
+        </button>
         <button id="logoutButton" class="icon-button" type="button" title="Log out" aria-label="Log out">
           <i data-lucide="log-out"></i>
         </button>
@@ -157,22 +161,28 @@
     </main>
 
     <dialog id="shareDialog" class="modal">
-      <form id="shareForm" method="dialog" class="modal-panel">
-        <button class="modal-close" value="cancel" type="button" aria-label="Close"><i data-lucide="x"></i></button>
+      <section class="modal-panel people-panel">
+        <button class="modal-close" type="button" aria-label="Close"><i data-lucide="x"></i></button>
         <h2>Share</h2>
-        <label>
-          <span>Email</span>
-          <input name="email" type="email" required />
-        </label>
-        <label>
-          <span>Permission</span>
-          <select name="role" required>
-            <option value="viewer">Viewer</option>
-            <option value="collaborator">Collaborator</option>
-          </select>
-        </label>
-        <button class="primary-button" type="submit">Apply</button>
-      </form>
+        <form id="shareForm" class="settings-form">
+          <label>
+            <span>Email</span>
+            <input name="email" type="email" required />
+          </label>
+          <label>
+            <span>Permission</span>
+            <select name="role" required>
+              <option value="viewer">Spectator</option>
+              <option value="collaborator">Collaborator</option>
+            </select>
+          </label>
+          <button class="primary-button" type="submit">Invite or update</button>
+        </form>
+        <section class="settings-section">
+          <h3>People</h3>
+          <div id="shareList" class="people-list" aria-live="polite"></div>
+        </section>
+      </section>
     </dialog>
 
     <dialog id="pageDialog" class="modal">
@@ -278,15 +288,21 @@
         <form id="resetPasswordForm" class="auth-form hidden">
           <p id="resetPasswordNote" class="auth-note"></p>
           <input name="email" type="hidden" />
-          <label>
-            <span>Reset code</span>
-            <input name="code" autocomplete="one-time-code" inputmode="text" maxlength="6" required />
-          </label>
-          <label>
+          <div id="resetCodeRow" class="verify-code-row">
+            <label id="resetCodeField">
+              <span>Reset code</span>
+              <span class="verify-input-row">
+                <input name="code" autocomplete="one-time-code" inputmode="text" maxlength="6" required />
+                <span id="resetCodeStatus" class="verify-status" aria-live="polite"></span>
+              </span>
+            </label>
+            <button id="verifyResetCodeButton" class="secondary-button" type="button">Verify</button>
+          </div>
+          <label id="resetNewPasswordField" class="hidden">
             <span>New password</span>
             <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
           </label>
-          <button class="primary-button" type="submit">Reset password</button>
+          <button id="applyResetPasswordButton" class="primary-button hidden" type="submit">Reset password</button>
           <button id="resetPasswordBackButton" class="text-button" type="button">Use a different email</button>
         </form>
       </section>

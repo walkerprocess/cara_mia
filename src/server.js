@@ -22,7 +22,7 @@ const {
   setSessionCookie,
   verifyPassword
 } = require('./auth');
-const { sendAuthCode } = require('./mailer');
+const { emailConfigStatus, sendAuthCode } = require('./mailer');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -89,10 +89,42 @@ function hashAuthCode(userId, purpose, code) {
     .digest('hex');
 }
 
+function hashEmailAuthCode(email, purpose, code) {
+  return crypto
+    .createHmac('sha256', authCodeSecret)
+    .update(`${normalizeEmail(email)}:${purpose}:${normalizeAuthCode(code)}`)
+    .digest('hex');
+}
+
 function timingSafeEqualText(left, right) {
   const leftBuffer = Buffer.from(String(left || ''), 'utf8');
   const rightBuffer = Buffer.from(String(right || ''), 'utf8');
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function makeResetToken(userId) {
+  const payload = Buffer.from(JSON.stringify({
+    sub: userId,
+    purpose: 'password_reset',
+    exp: Date.now() + AUTH_CODE_MINUTES * 60 * 1000
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', authCodeSecret).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function readResetToken(token) {
+  if (!token || !String(token).includes('.')) return null;
+  const [payload, signature] = String(token).split('.');
+  const expected = crypto.createHmac('sha256', authCodeSecret).update(payload).digest('base64url');
+  if (!timingSafeEqualText(signature, expected)) return null;
+
+  try {
+    const body = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (body.purpose !== 'password_reset' || !body.sub || Date.now() > Number(body.exp)) return null;
+    return body;
+  } catch {
+    return null;
+  }
 }
 
 async function issueAuthCode(user, purpose) {
@@ -115,6 +147,26 @@ async function issueAuthCode(user, purpose) {
   return { expiresAt };
 }
 
+async function issueEmailAuthCode(email, purpose = 'signup') {
+  const normalizedEmail = normalizeEmail(email);
+  const code = generateAuthCode();
+  const expiresAt = new Date(Date.now() + AUTH_CODE_MINUTES * 60 * 1000).toISOString();
+  await query(
+    'UPDATE email_auth_codes SET consumed_at = CURRENT_TIMESTAMP WHERE email = ? AND purpose = ? AND consumed_at IS NULL',
+    [normalizedEmail, purpose]
+  );
+  await query(
+    'INSERT INTO email_auth_codes (id, email, purpose, code_hash, expires_at) VALUES (?, ?, ?, ?, ?)',
+    [randomUUID(), normalizedEmail, purpose, hashEmailAuthCode(normalizedEmail, purpose, code), expiresAt]
+  );
+  await sendAuthCode({
+    to: normalizedEmail,
+    code,
+    purpose
+  });
+  return { expiresAt };
+}
+
 async function verifyAuthCode(user, purpose, code) {
   const cleanCode = normalizeAuthCode(code);
   if (!validAuthCode(cleanCode)) return false;
@@ -133,6 +185,43 @@ async function verifyAuthCode(user, purpose, code) {
   if (!timingSafeEqualText(row.code_hash, expected)) return false;
 
   await query('UPDATE auth_codes SET consumed_at = CURRENT_TIMESTAMP WHERE id = ?', [row.id]);
+  return true;
+}
+
+async function verifyEmailAuthCode(email, purpose, code) {
+  const normalizedEmail = normalizeEmail(email);
+  const cleanCode = normalizeAuthCode(code);
+  if (!validAuthCode(cleanCode)) return false;
+
+  const row = await get(
+    `SELECT *
+     FROM email_auth_codes
+     WHERE email = ? AND purpose = ? AND consumed_at IS NULL
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [normalizedEmail, purpose]
+  );
+  if (!row || Date.parse(row.expires_at) < Date.now()) return false;
+
+  const expected = hashEmailAuthCode(normalizedEmail, purpose, cleanCode);
+  if (!timingSafeEqualText(row.code_hash, expected)) return false;
+
+  await query('UPDATE email_auth_codes SET verified_at = CURRENT_TIMESTAMP WHERE id = ?', [row.id]);
+  return true;
+}
+
+async function consumeVerifiedEmailCode(email, purpose) {
+  const normalizedEmail = normalizeEmail(email);
+  const row = await get(
+    `SELECT *
+     FROM email_auth_codes
+     WHERE email = ? AND purpose = ? AND verified_at IS NOT NULL AND consumed_at IS NULL
+     ORDER BY verified_at DESC, created_at DESC, id DESC
+     LIMIT 1`,
+    [normalizedEmail, purpose]
+  );
+  if (!row || Date.parse(row.expires_at) < Date.now()) return false;
+  await query('UPDATE email_auth_codes SET consumed_at = CURRENT_TIMESTAMP WHERE id = ?', [row.id]);
   return true;
 }
 
@@ -485,6 +574,20 @@ function exhibitPayload(access, widgets = [], pages = []) {
   };
 }
 
+function sharePayload(row) {
+  return {
+    id: row.id,
+    role: row.role,
+    user: {
+      id: row.target_user_id,
+      email: row.email,
+      accountId: row.account_id,
+      emailVerified: Boolean(row.email_verified)
+    },
+    createdAt: row.created_at
+  };
+}
+
 async function listExhibits(userId) {
   await ensureDefaultExhibit(userId);
 
@@ -526,6 +629,45 @@ app.get('/health', (_req, res) => {
   });
 });
 
+app.get('/api/email/status', (_req, res) => {
+  res.json(emailConfigStatus());
+});
+
+app.post('/api/signup/code', async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    if (!validEmail(email)) {
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+
+    const existingEmail = await get('SELECT * FROM users WHERE email = ?', [email]);
+    if (existingEmail && Boolean(existingEmail.email_verified)) {
+      return res.status(409).json({ error: 'That email already has an account.' });
+    }
+
+    await issueEmailAuthCode(email, 'signup');
+    res.json({ ok: true, email });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/signup/verify-email', async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    const code = normalizeAuthCode(req.body.code);
+    if (!validEmail(email)) {
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+    if (!(await verifyEmailAuthCode(email, 'signup', code))) {
+      return res.status(400).json({ error: 'That verification code did not match or has expired.' });
+    }
+    res.json({ ok: true, email, verified: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/signup', async (req, res, next) => {
   try {
     const email = normalizeEmail(req.body.email);
@@ -551,18 +693,21 @@ app.post('/api/signup', async (req, res, next) => {
     if (existingAccount && existingAccount.id !== existingEmail?.id) {
       return res.status(409).json({ error: 'That account id is already taken.' });
     }
+    if (!(await consumeVerifiedEmailCode(email, 'signup'))) {
+      return res.status(400).json({ error: 'Verify your email before creating the account.' });
+    }
 
     const userId = existingEmail?.id || randomUUID();
     const passwordHash = await hashPassword(password);
     if (existingEmail) {
       await query(
         'UPDATE users SET account_id = ?, password_hash = ?, email_verified = ? WHERE id = ?',
-        [accountId, passwordHash, isPostgres ? false : 0, userId]
+        [accountId, passwordHash, isPostgres ? true : 1, userId]
       );
     } else {
       await query(
         'INSERT INTO users (id, email, account_id, password_hash, email_verified) VALUES (?, ?, ?, ?, ?)',
-        [userId, email, accountId, passwordHash, isPostgres ? false : 0]
+        [userId, email, accountId, passwordHash, isPostgres ? true : 1]
       );
     }
 
@@ -572,14 +717,13 @@ app.post('/api/signup', async (req, res, next) => {
       error.statusCode = 500;
       throw error;
     }
-    await issueAuthCode(savedUser, 'signup');
+    await ensureDefaultExhibit(userId);
     scheduleDatabaseExport();
+    setSessionCookie(res, userId);
 
     res.status(201).json({
       ok: true,
-      verificationRequired: true,
-      email: savedUser.email,
-      accountId: savedUser.account_id
+      user: publicUser(savedUser)
     });
   } catch (error) {
     next(error);
@@ -589,15 +733,15 @@ app.post('/api/signup', async (req, res, next) => {
 app.post('/api/signup/resend', async (req, res, next) => {
   try {
     const email = normalizeEmail(req.body.email);
-    const accountId = normalizeAccountId(req.body.accountId);
-    if (!validEmail(email) || !validAccountId(accountId)) {
-      return res.status(400).json({ error: 'Enter the email and account id from signup.' });
+    if (!validEmail(email)) {
+      return res.status(400).json({ error: 'Enter the email from signup.' });
     }
 
-    const user = await get('SELECT * FROM users WHERE email = ? AND account_id = ?', [email, accountId]);
-    if (user && !Boolean(user.email_verified)) {
-      await issueAuthCode(user, 'signup');
+    const existingEmail = await get('SELECT * FROM users WHERE email = ?', [email]);
+    if (existingEmail && Boolean(existingEmail.email_verified)) {
+      return res.status(409).json({ error: 'That email already has an account.' });
     }
+    await issueEmailAuthCode(email, 'signup');
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -695,17 +839,40 @@ app.post('/api/password/forgot', async (req, res, next) => {
   }
 });
 
+app.post('/api/password/verify', async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    const code = normalizeAuthCode(req.body.code);
+    if (!validEmail(email)) {
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+
+    const user = await get('SELECT * FROM users WHERE email = ?', [email]);
+    if (!user || !Boolean(user.email_verified) || !(await verifyAuthCode(user, 'password_reset', code))) {
+      return res.status(400).json({ error: 'That reset code did not match or has expired.' });
+    }
+
+    res.json({ ok: true, resetToken: makeResetToken(user.id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/password/reset', async (req, res, next) => {
   try {
     const email = normalizeEmail(req.body.email);
     const code = normalizeAuthCode(req.body.code);
     const newPassword = String(req.body.newPassword || '');
+    const resetToken = String(req.body.resetToken || '');
     if (!validEmail(email) || !validPassword(newPassword)) {
-      return res.status(400).json({ error: 'Enter the email, code, and a password with at least 8 characters.' });
+      return res.status(400).json({ error: 'Enter the email and a password with at least 8 characters.' });
     }
 
     const user = await get('SELECT * FROM users WHERE email = ?', [email]);
-    if (!user || !Boolean(user.email_verified) || !(await verifyAuthCode(user, 'password_reset', code))) {
+    const tokenBody = readResetToken(resetToken);
+    const verifiedByToken = tokenBody?.sub === user?.id;
+    const verifiedByCode = !resetToken && user && await verifyAuthCode(user, 'password_reset', code);
+    if (!user || !Boolean(user.email_verified) || (!verifiedByToken && !verifiedByCode)) {
       return res.status(400).json({ error: 'That reset code did not match or has expired.' });
     }
 
@@ -1081,6 +1248,85 @@ app.post('/api/share', requireAuth, async (req, res, next) => {
 
     scheduleDatabaseExport();
     res.json({ ok: true, sharedWith: publicUser(target), role });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/exhibits/:id/shares', requireAuth, async (req, res, next) => {
+  try {
+    const access = await getAccess(req.params.id, req.user.id);
+    if (!access || !access.canShare) {
+      return res.status(403).json({ error: 'Only the owner can manage people.' });
+    }
+
+    const shares = await all(
+      `SELECT s.*, u.email, u.account_id, u.email_verified
+       FROM shares s
+       JOIN users u ON u.id = s.target_user_id
+       WHERE s.exhibit_id = ?
+       ORDER BY s.created_at ASC`,
+      [req.params.id]
+    );
+    res.json({ shares: shares.map(sharePayload) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/exhibits/:id/shares/:shareId', requireAuth, async (req, res, next) => {
+  try {
+    const access = await getAccess(req.params.id, req.user.id);
+    if (!access || !access.canShare) {
+      return res.status(403).json({ error: 'Only the owner can manage people.' });
+    }
+
+    const role = String(req.body.role || '');
+    if (!['viewer', 'collaborator'].includes(role)) {
+      return res.status(400).json({ error: 'Choose spectator or collaborator.' });
+    }
+
+    const existing = await get(
+      `SELECT s.*, u.email, u.account_id, u.email_verified
+       FROM shares s
+       JOIN users u ON u.id = s.target_user_id
+       WHERE s.id = ? AND s.exhibit_id = ?`,
+      [req.params.shareId, req.params.id]
+    );
+    if (!existing) {
+      return res.status(404).json({ error: 'That shared person was not found.' });
+    }
+
+    await query('UPDATE shares SET role = ? WHERE id = ?', [role, req.params.shareId]);
+    scheduleDatabaseExport();
+    const updated = await get(
+      `SELECT s.*, u.email, u.account_id, u.email_verified
+       FROM shares s
+       JOIN users u ON u.id = s.target_user_id
+       WHERE s.id = ?`,
+      [req.params.shareId]
+    );
+    res.json({ ok: true, share: sharePayload(updated) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/exhibits/:id/shares/:shareId', requireAuth, async (req, res, next) => {
+  try {
+    const access = await getAccess(req.params.id, req.user.id);
+    if (!access || !access.canShare) {
+      return res.status(403).json({ error: 'Only the owner can manage people.' });
+    }
+
+    const existing = await get('SELECT * FROM shares WHERE id = ? AND exhibit_id = ?', [req.params.shareId, req.params.id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'That shared person was not found.' });
+    }
+
+    await query('DELETE FROM shares WHERE id = ?', [req.params.shareId]);
+    scheduleDatabaseExport();
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }

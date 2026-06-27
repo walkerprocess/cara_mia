@@ -6,6 +6,15 @@ function smtpConfigured() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_PORT && (process.env.SMTP_FROM || process.env.SMTP_USER));
 }
 
+function emailConfigStatus() {
+  return {
+    configured: smtpConfigured(),
+    mode: smtpConfigured() ? 'smtp' : localMailFallback ? 'console' : 'missing',
+    host: process.env.SMTP_HOST || null,
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || null
+  };
+}
+
 function smtpSecure() {
   if (process.env.SMTP_SECURE === 'true') return true;
   if (process.env.SMTP_SECURE === 'false') return false;
@@ -69,7 +78,7 @@ async function sendAuthCode({ to, code, purpose, accountId }) {
       return { mode: 'console' };
     }
 
-    const error = new Error('Email sending is not configured yet.');
+    const error = new Error('Email sending is not configured yet. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM in Render.');
     error.statusCode = 503;
     throw error;
   }
@@ -86,5 +95,6 @@ async function sendAuthCode({ to, code, purpose, accountId }) {
 }
 
 module.exports = {
+  emailConfigStatus,
   sendAuthCode
 };
