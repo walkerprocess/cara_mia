@@ -38,7 +38,10 @@ function createTransport() {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT),
     secure: smtpSecure(),
-    auth
+    auth,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000
   });
 }
 
