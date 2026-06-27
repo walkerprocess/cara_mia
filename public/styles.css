@@ -400,6 +400,31 @@ select:focus {
   font-weight: 800;
 }
 
+.text-button {
+  min-height: 34px;
+  padding: 0;
+  color: #050406;
+  background: transparent;
+  border: 0;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-note {
+  margin: 0;
+  color: rgba(5, 4, 6, 0.72);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.auth-form input[name="code"] {
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  font-weight: 800;
+}
+
 .studio-view {
   height: 100vh;
   overflow: hidden;
@@ -1874,9 +1899,13 @@ select:focus {
 
 .cursor-panel {
   gap: 16px;
-  width: min(460px, calc(100vw - 28px));
+  width: min(500px, calc(100vw - 28px));
   max-height: min(760px, calc(100vh - 28px));
   overflow: auto;
+}
+
+.auth-modal-panel {
+  width: min(460px, calc(100vw - 30px));
 }
 
 .settings-section {
@@ -1891,6 +1920,37 @@ select:focus {
   line-height: 1;
   text-transform: uppercase;
   letter-spacing: 0;
+}
+
+.account-summary {
+  display: grid;
+  grid-template-columns: minmax(86px, auto) minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: center;
+  color: rgba(5, 4, 6, 0.72);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account-summary strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #050406;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-form {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-form .primary-button {
+  min-height: 42px;
+}
+
+.settings-form .text-button {
+  justify-self: start;
 }
 
 .cursor-preview-row {

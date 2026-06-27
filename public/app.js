@@ -202,6 +202,7 @@ const state = {
   pendingPresentation: 'cover',
   pendingAssetType: 'sticker',
   pendingPageAction: null,
+  pendingSignup: null,
   drawingFrame: null,
   pendingDrawPoint: null,
   activeDrawingCanvas: null,
@@ -233,6 +234,11 @@ const loginPanel = $('#loginPanel');
 const signupPanel = $('#signupPanel');
 const loginForm = $('#loginForm');
 const signupForm = $('#signupForm');
+const signupVerifyForm = $('#signupVerifyForm');
+const signupVerifyNote = $('#signupVerifyNote');
+const forgotPasswordButton = $('#forgotPasswordButton');
+const resendSignupCodeButton = $('#resendSignupCodeButton');
+const editSignupDetailsButton = $('#editSignupDetailsButton');
 const showSignupButton = $('#showSignupButton');
 const showLoginButton = $('#showLoginButton');
 const board = $('#board');
@@ -265,6 +271,10 @@ const pageForm = $('#pageForm');
 const pageDialogTitle = $('#pageDialogTitle');
 const pageNameInput = $('#pageNameInput');
 const cursorDialog = $('#cursorDialog');
+const accountUsername = $('#accountUsername');
+const accountEmail = $('#accountEmail');
+const changePasswordForm = $('#changePasswordForm');
+const settingsForgotPasswordButton = $('#settingsForgotPasswordButton');
 const cursorPreview = $('#cursorPreview');
 const cursorColorInput = $('#cursorColorInput');
 const cursorPresetGrid = $('#cursorPresetGrid');
@@ -282,6 +292,11 @@ const assetSearchForm = $('#assetSearchForm');
 const assetSearchInput = $('#assetSearchInput');
 const assetResults = $('#assetResults');
 const pictureUploadInput = $('#pictureUploadInput');
+const passwordResetDialog = $('#passwordResetDialog');
+const forgotPasswordForm = $('#forgotPasswordForm');
+const resetPasswordForm = $('#resetPasswordForm');
+const resetPasswordNote = $('#resetPasswordNote');
+const resetPasswordBackButton = $('#resetPasswordBackButton');
 
 function refreshIcons() {
   if (window.lucide) {
@@ -745,14 +760,57 @@ function setView(view) {
   studioView.classList.toggle('hidden', view !== 'studio');
 }
 
+function showSignupDetails() {
+  signupForm.classList.remove('hidden');
+  signupVerifyForm.classList.add('hidden');
+}
+
+function showSignupVerification(email, accountId) {
+  state.pendingSignup = { email, accountId };
+  signupForm.classList.add('hidden');
+  signupVerifyForm.classList.remove('hidden');
+  signupVerifyNote.textContent = `Enter the 6-character code sent to ${email}.`;
+  signupVerifyForm.elements.code.value = '';
+  signupVerifyForm.elements.code.focus();
+}
+
 function showLogin() {
   signupPanel.classList.add('hidden');
   loginPanel.classList.remove('hidden');
+  showSignupDetails();
 }
 
 function showSignup() {
   loginPanel.classList.add('hidden');
   signupPanel.classList.remove('hidden');
+  showSignupDetails();
+}
+
+function renderAccountSettings() {
+  accountUsername.textContent = state.user?.accountId || '-';
+  accountEmail.textContent = state.user?.email || '-';
+}
+
+function openPasswordResetDialog(email = '') {
+  forgotPasswordForm.reset();
+  resetPasswordForm.reset();
+  forgotPasswordForm.classList.remove('hidden');
+  resetPasswordForm.classList.add('hidden');
+  if (email) {
+    forgotPasswordForm.elements.email.value = email;
+  }
+  passwordResetDialog.showModal();
+  forgotPasswordForm.elements.email.focus();
+}
+
+function showResetPasswordStep(email) {
+  forgotPasswordForm.classList.add('hidden');
+  resetPasswordForm.classList.remove('hidden');
+  resetPasswordForm.elements.email.value = email;
+  resetPasswordNote.textContent = `Enter the code sent to ${email}, then choose a new password.`;
+  resetPasswordForm.elements.code.value = '';
+  resetPasswordForm.elements.newPassword.value = '';
+  resetPasswordForm.elements.code.focus();
 }
 
 function canEdit() {
@@ -2902,7 +2960,7 @@ signupForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(signupForm);
   try {
-    await api('/api/signup', {
+    const result = await api('/api/signup', {
       method: 'POST',
       body: JSON.stringify({
         email: form.get('email'),
@@ -2910,17 +2968,104 @@ signupForm.addEventListener('submit', async (event) => {
         password: form.get('password')
       })
     });
-    loginForm.elements.accountId.value = form.get('accountId');
-    signupForm.reset();
-    showLogin();
-    showToast('Account created.');
+    showSignupVerification(result.email || form.get('email'), result.accountId || form.get('accountId'));
+    showToast('Verification code sent.');
   } catch (error) {
     showToast(error.message);
   }
 });
 
+signupVerifyForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!state.pendingSignup) return;
+  const form = new FormData(signupVerifyForm);
+  try {
+    const { user } = await api('/api/signup/verify', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: state.pendingSignup.email,
+        accountId: state.pendingSignup.accountId,
+        code: form.get('code')
+      })
+    });
+    state.user = user;
+    state.pendingSignup = null;
+    signupForm.reset();
+    signupVerifyForm.reset();
+    await enterStudio();
+    showToast('Email verified.');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+resendSignupCodeButton.addEventListener('click', async () => {
+  if (!state.pendingSignup) return;
+  try {
+    await api('/api/signup/resend', {
+      method: 'POST',
+      body: JSON.stringify(state.pendingSignup)
+    });
+    showToast('Verification code sent again.');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+editSignupDetailsButton.addEventListener('click', () => {
+  signupForm.elements.email.value = state.pendingSignup?.email || signupForm.elements.email.value;
+  signupForm.elements.accountId.value = state.pendingSignup?.accountId || signupForm.elements.accountId.value;
+  showSignupDetails();
+});
+
 showSignupButton.addEventListener('click', showSignup);
 showLoginButton.addEventListener('click', showLogin);
+
+forgotPasswordButton.addEventListener('click', () => openPasswordResetDialog());
+
+forgotPasswordForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const email = String(new FormData(forgotPasswordForm).get('email') || '').trim().toLowerCase();
+  try {
+    await api('/api/password/forgot', {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+    showResetPasswordStep(email);
+    showToast('Reset code sent.');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+resetPasswordForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(resetPasswordForm);
+  try {
+    const { user } = await api('/api/password/reset', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: form.get('email'),
+        code: form.get('code'),
+        newPassword: form.get('newPassword')
+      })
+    });
+    state.user = user;
+    passwordResetDialog.close();
+    forgotPasswordForm.reset();
+    resetPasswordForm.reset();
+    await enterStudio();
+    showToast('Password reset.');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+resetPasswordBackButton.addEventListener('click', () => {
+  resetPasswordForm.classList.add('hidden');
+  forgotPasswordForm.classList.remove('hidden');
+  forgotPasswordForm.elements.email.focus();
+});
 
 logoutButton.addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST' });
@@ -2936,9 +3081,36 @@ exhibitPicker.addEventListener('change', () => {
 });
 
 cursorSettingsButton.addEventListener('click', () => {
+  renderAccountSettings();
+  changePasswordForm.reset();
   renderCursorPreview();
   renderBackgroundPresets();
   cursorDialog.showModal();
+});
+
+changePasswordForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(changePasswordForm);
+  try {
+    const { user } = await api('/api/account/password', {
+      method: 'POST',
+      body: JSON.stringify({
+        currentPassword: form.get('currentPassword'),
+        newPassword: form.get('newPassword')
+      })
+    });
+    state.user = user;
+    changePasswordForm.reset();
+    renderAccountSettings();
+    showToast('Password changed.');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+settingsForgotPasswordButton.addEventListener('click', () => {
+  cursorDialog.close();
+  openPasswordResetDialog(state.user?.email || '');
 });
 
 readModeButton.addEventListener('click', () => setViewMode('read'));

@@ -15,6 +15,16 @@ CREATE TABLE IF NOT EXISTS exhibits (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS auth_codes (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL CHECK (purpose IN ('signup', 'password_reset')),
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS exhibit_pages (
   id TEXT PRIMARY KEY,
   exhibit_id TEXT NOT NULL REFERENCES exhibits(id) ON DELETE CASCADE,
@@ -53,6 +63,7 @@ CREATE TABLE IF NOT EXISTS shares (
 
 CREATE INDEX IF NOT EXISTS idx_widgets_exhibit ON widgets(exhibit_id);
 CREATE INDEX IF NOT EXISTS idx_widgets_created_by ON widgets(created_by);
+CREATE INDEX IF NOT EXISTS idx_auth_codes_user_purpose ON auth_codes(user_id, purpose, created_at);
 CREATE INDEX IF NOT EXISTS idx_pages_exhibit ON exhibit_pages(exhibit_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_exhibits_owner ON exhibits(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_shares_target ON shares(target_user_id);

@@ -1,5 +1,5 @@
 const path = require('path');
-const { randomUUID } = require('crypto');
+const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const express = require('express');
 const {
@@ -22,6 +22,7 @@ const {
   setSessionCookie,
   verifyPassword
 } = require('./auth');
+const { sendAuthCode } = require('./mailer');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -29,6 +30,9 @@ const publicDir = path.join(__dirname, '..', 'public');
 const exhibitStreams = new Map();
 const startedAt = new Date();
 const revision = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null;
+const { randomUUID } = crypto;
+const AUTH_CODE_MINUTES = 15;
+const authCodeSecret = process.env.AUTH_CODE_SECRET || process.env.SESSION_SECRET || 'cara-mia-local-auth-code-secret';
 
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
@@ -55,6 +59,81 @@ function validEmail(email) {
 
 function validAccountId(accountId) {
   return /^[a-z0-9_.-]{3,32}$/.test(accountId);
+}
+
+function validPassword(password) {
+  return typeof password === 'string' && password.length >= 8 && password.length <= 256;
+}
+
+function normalizeAuthCode(value) {
+  return String(value || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
+}
+
+function validAuthCode(code) {
+  return /^[A-Z0-9]{6}$/.test(code);
+}
+
+function generateAuthCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  do {
+    code = Array.from({ length: 6 }, () => alphabet[crypto.randomInt(alphabet.length)]).join('');
+  } while (!/[A-Z]/.test(code) || !/[0-9]/.test(code));
+  return code;
+}
+
+function hashAuthCode(userId, purpose, code) {
+  return crypto
+    .createHmac('sha256', authCodeSecret)
+    .update(`${userId}:${purpose}:${normalizeAuthCode(code)}`)
+    .digest('hex');
+}
+
+function timingSafeEqualText(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''), 'utf8');
+  const rightBuffer = Buffer.from(String(right || ''), 'utf8');
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+async function issueAuthCode(user, purpose) {
+  const code = generateAuthCode();
+  const expiresAt = new Date(Date.now() + AUTH_CODE_MINUTES * 60 * 1000).toISOString();
+  await query(
+    'UPDATE auth_codes SET consumed_at = CURRENT_TIMESTAMP WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL',
+    [user.id, purpose]
+  );
+  await query(
+    'INSERT INTO auth_codes (id, user_id, purpose, code_hash, expires_at) VALUES (?, ?, ?, ?, ?)',
+    [randomUUID(), user.id, purpose, hashAuthCode(user.id, purpose, code), expiresAt]
+  );
+  await sendAuthCode({
+    to: user.email,
+    code,
+    purpose,
+    accountId: user.account_id
+  });
+  return { expiresAt };
+}
+
+async function verifyAuthCode(user, purpose, code) {
+  const cleanCode = normalizeAuthCode(code);
+  if (!validAuthCode(cleanCode)) return false;
+
+  const row = await get(
+    `SELECT *
+     FROM auth_codes
+     WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [user.id, purpose]
+  );
+  if (!row || Date.parse(row.expires_at) < Date.now()) return false;
+
+  const expected = hashAuthCode(user.id, purpose, cleanCode);
+  if (!timingSafeEqualText(row.code_hash, expected)) return false;
+
+  await query('UPDATE auth_codes SET consumed_at = CURRENT_TIMESTAMP WHERE id = ?', [row.id]);
+  return true;
 }
 
 function cleanPageName(value) {
@@ -459,35 +538,89 @@ app.post('/api/signup', async (req, res, next) => {
     if (!validAccountId(accountId)) {
       return res.status(400).json({ error: 'Use 3-32 letters, numbers, dots, dashes, or underscores for the account id.' });
     }
-    if (password.length < 8) {
+    if (!validPassword(password)) {
       return res.status(400).json({ error: 'Use a password with at least 8 characters.' });
     }
 
-    const existingEmail = await get('SELECT id FROM users WHERE email = ?', [email]);
-    if (existingEmail) {
+    const existingEmail = await get('SELECT * FROM users WHERE email = ?', [email]);
+    if (existingEmail && Boolean(existingEmail.email_verified)) {
       return res.status(409).json({ error: 'That email already has an account.' });
     }
 
-    const existingAccount = await get('SELECT id FROM users WHERE account_id = ?', [accountId]);
-    if (existingAccount) {
+    const existingAccount = await get('SELECT * FROM users WHERE account_id = ?', [accountId]);
+    if (existingAccount && existingAccount.id !== existingEmail?.id) {
       return res.status(409).json({ error: 'That account id is already taken.' });
     }
 
-    const userId = randomUUID();
-    await query(
-      'INSERT INTO users (id, email, account_id, password_hash, email_verified) VALUES (?, ?, ?, ?, ?)',
-      [userId, email, accountId, await hashPassword(password), isPostgres ? true : 1]
-    );
-    const exhibit = await ensureDefaultExhibit(userId);
+    const userId = existingEmail?.id || randomUUID();
+    const passwordHash = await hashPassword(password);
+    if (existingEmail) {
+      await query(
+        'UPDATE users SET account_id = ?, password_hash = ?, email_verified = ? WHERE id = ?',
+        [accountId, passwordHash, isPostgres ? false : 0, userId]
+      );
+    } else {
+      await query(
+        'INSERT INTO users (id, email, account_id, password_hash, email_verified) VALUES (?, ?, ?, ?, ?)',
+        [userId, email, accountId, passwordHash, isPostgres ? false : 0]
+      );
+    }
+
     const savedUser = await get('SELECT * FROM users WHERE id = ?', [userId]);
-    if (!savedUser || !exhibit) {
+    if (!savedUser) {
       const error = new Error('Account could not be saved. Please try again.');
       error.statusCode = 500;
       throw error;
     }
+    await issueAuthCode(savedUser, 'signup');
     scheduleDatabaseExport();
 
-    res.status(201).json({ ok: true, user: publicUser(savedUser) });
+    res.status(201).json({
+      ok: true,
+      verificationRequired: true,
+      email: savedUser.email,
+      accountId: savedUser.account_id
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/signup/resend', async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    const accountId = normalizeAccountId(req.body.accountId);
+    if (!validEmail(email) || !validAccountId(accountId)) {
+      return res.status(400).json({ error: 'Enter the email and account id from signup.' });
+    }
+
+    const user = await get('SELECT * FROM users WHERE email = ? AND account_id = ?', [email, accountId]);
+    if (user && !Boolean(user.email_verified)) {
+      await issueAuthCode(user, 'signup');
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/signup/verify', async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    const accountId = normalizeAccountId(req.body.accountId);
+    const code = normalizeAuthCode(req.body.code);
+
+    const user = await get('SELECT * FROM users WHERE email = ? AND account_id = ?', [email, accountId]);
+    if (!user || Boolean(user.email_verified) || !(await verifyAuthCode(user, 'signup', code))) {
+      return res.status(400).json({ error: 'That verification code did not match or has expired.' });
+    }
+
+    await query('UPDATE users SET email_verified = ? WHERE id = ?', [isPostgres ? true : 1, user.id]);
+    await ensureDefaultExhibit(user.id);
+    const savedUser = await get('SELECT * FROM users WHERE id = ?', [user.id]);
+    scheduleDatabaseExport();
+    setSessionCookie(res, user.id);
+    res.json({ ok: true, user: publicUser(savedUser) });
   } catch (error) {
     next(error);
   }
@@ -501,6 +634,9 @@ app.post('/api/login', async (req, res, next) => {
 
     if (!user || !(await verifyPassword(password, user.password_hash))) {
       return res.status(401).json({ error: 'The account id or password is incorrect.' });
+    }
+    if (!Boolean(user.email_verified)) {
+      return res.status(403).json({ error: 'Verify your email before logging in.' });
     }
 
     await ensureDefaultExhibit(user.id);
@@ -519,6 +655,69 @@ app.post('/api/logout', (_req, res) => {
 
 app.get('/api/me', requireAuth, (req, res) => {
   res.json({ user: req.publicUser });
+});
+
+app.post('/api/account/password', requireAuth, async (req, res, next) => {
+  try {
+    const currentPassword = String(req.body.currentPassword || '');
+    const newPassword = String(req.body.newPassword || '');
+
+    if (!(await verifyPassword(currentPassword, req.user.password_hash))) {
+      return res.status(401).json({ error: 'The current password is incorrect.' });
+    }
+    if (!validPassword(newPassword)) {
+      return res.status(400).json({ error: 'Use a new password with at least 8 characters.' });
+    }
+
+    await query('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(newPassword), req.user.id]);
+    scheduleDatabaseExport();
+    const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+    res.json({ ok: true, user: publicUser(user) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/password/forgot', async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    if (!validEmail(email)) {
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+
+    const user = await get('SELECT * FROM users WHERE email = ?', [email]);
+    if (user && Boolean(user.email_verified)) {
+      await issueAuthCode(user, 'password_reset');
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/password/reset', async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    const code = normalizeAuthCode(req.body.code);
+    const newPassword = String(req.body.newPassword || '');
+    if (!validEmail(email) || !validPassword(newPassword)) {
+      return res.status(400).json({ error: 'Enter the email, code, and a password with at least 8 characters.' });
+    }
+
+    const user = await get('SELECT * FROM users WHERE email = ?', [email]);
+    if (!user || !Boolean(user.email_verified) || !(await verifyAuthCode(user, 'password_reset', code))) {
+      return res.status(400).json({ error: 'That reset code did not match or has expired.' });
+    }
+
+    await query('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(newPassword), user.id]);
+    await ensureDefaultExhibit(user.id);
+    scheduleDatabaseExport();
+    setSessionCookie(res, user.id);
+    const savedUser = await get('SELECT * FROM users WHERE id = ?', [user.id]);
+    res.json({ ok: true, user: publicUser(savedUser) });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get('/api/exhibits', requireAuth, async (req, res, next) => {
