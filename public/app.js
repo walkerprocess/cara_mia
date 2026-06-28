@@ -76,13 +76,10 @@ const widgetShapes = [
   { id: 'round', label: 'Round', radius: '24px' },
   { id: 'circle', label: 'Circle', radius: '999px' },
   { id: 'arch', label: 'Arch', radius: '999px 999px 18px 18px' },
-  { id: 'diamond', label: 'Diamond', radius: '8px', clip: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)' },
-  { id: 'ticket', label: 'Ticket', radius: '34px 8px 34px 8px' },
-  { id: 'heart', label: 'Heart', radius: '14px', clip: 'polygon(50% 92%, 14% 58%, 6% 36%, 12% 18%, 27% 8%, 42% 14%, 50% 28%, 58% 14%, 73% 8%, 88% 18%, 94% 36%, 86% 58%)' },
-  { id: 'star', label: 'Star', radius: '8px', clip: 'polygon(50% 3%, 61% 35%, 95% 35%, 67% 54%, 78% 90%, 50% 68%, 22% 90%, 33% 54%, 5% 35%, 39% 35%)' },
-  { id: 'hex', label: 'Hexagon', radius: '8px', clip: 'polygon(25% 5%, 75% 5%, 98% 50%, 75% 95%, 25% 95%, 2% 50%)' },
-  { id: 'gem', label: 'Gem', radius: '8px', clip: 'polygon(50% 0, 92% 24%, 80% 100%, 20% 100%, 8% 24%)' }
+  { id: 'ticket', label: 'Ticket', radius: '34px 8px 34px 8px' }
 ];
+const defaultWidgetShapeId = 'round';
+const clippedWidgetShapeIds = new Set(['diamond', 'heart', 'star', 'hex', 'gem']);
 const pictureFrames = [
   { id: 'clean', label: 'Clean' },
   { id: 'classic', label: 'Classic' },
@@ -175,7 +172,6 @@ const zoomLimits = { min: 0.35, max: 2.25, step: 0.1 };
 const cursorPresenceInterval = 150;
 const cursorPresenceMinDistance = 6;
 const gothicFlowFrameMs = 42;
-const canvasUndoLimit = 24;
 const appUndoLimit = 40;
 
 const state = {
@@ -206,8 +202,6 @@ const state = {
   pendingPasswordReset: null,
   drawingFrame: null,
   pendingDrawPoint: null,
-  activeDrawingCanvas: null,
-  canvasHistories: new WeakMap(),
   liveEvents: null,
   liveExhibitId: null,
   liveRetryTimer: null,
@@ -222,7 +216,10 @@ const state = {
   localCursorFrame: null,
   localCursorKey: '',
   appUndoStack: [],
+  appRedoStack: [],
   lastUndoDomain: null,
+  isApplyingHistory: false,
+  widgetHistoryBaselines: new Map(),
   boardRect: null,
   gothicLastFrame: 0,
   saveTimers: new Map(),
@@ -614,12 +611,15 @@ function renderBackgroundPresets() {
     button.classList.toggle('active', preset.id === activeBackgroundPreset());
     button.addEventListener('click', async () => {
       if (!state.exhibit || !state.activePageId) return;
+      const previousTheme = activeBackgroundPreset();
+      if (previousTheme === preset.id) return;
       try {
         const { pages } = await api(`/api/exhibits/${state.exhibit.id}/pages/${state.activePageId}`, {
           method: 'PATCH',
           body: JSON.stringify({ backgroundTheme: preset.id })
         });
         state.exhibit.pages = pages;
+        pushAppUndo({ type: 'restore-page-background', pageId: state.activePageId, backgroundTheme: previousTheme });
         applyBackgroundTheme();
         renderBackgroundPresets();
       } catch (error) {
@@ -1086,25 +1086,107 @@ async function loadShareList() {
 }
 
 function widgetData(widget) {
-  return widget.data && typeof widget.data === 'object' ? widget.data : {};
+  const data = widget?.data && typeof widget.data === 'object' ? widget.data : {};
+  if (clippedWidgetShapeIds.has(data.shape)) {
+    data.shape = defaultWidgetShapeId;
+  }
+  return data;
 }
 
 function cloneWidget(widget) {
   return JSON.parse(JSON.stringify(widget));
 }
 
-function pushAppUndo(action) {
-  state.appUndoStack.push(action);
-  state.lastUndoDomain = 'app';
-  if (state.appUndoStack.length > appUndoLimit) {
-    state.appUndoStack.splice(0, state.appUndoStack.length - appUndoLimit);
+function snapshotWidget(widget) {
+  const snapshot = cloneWidget(widget);
+  snapshot.data = { ...widgetData(snapshot) };
+  return snapshot;
+}
+
+function widgetHistoryView(widget) {
+  const data = widgetData(widget);
+  return {
+    id: widget.id,
+    page_id: widget.page_id,
+    type: widget.type,
+    x: widget.x,
+    y: widget.y,
+    width: widget.width,
+    height: widget.height,
+    z_index: widget.z_index,
+    data
+  };
+}
+
+function widgetsMatchForHistory(left, right) {
+  if (!left || !right) return false;
+  return JSON.stringify(widgetHistoryView(left)) === JSON.stringify(widgetHistoryView(right));
+}
+
+function setWidgetBaseline(widget) {
+  if (widget?.id) {
+    state.widgetHistoryBaselines.set(widget.id, snapshotWidget(widget));
   }
 }
 
-async function restoreDeletedWidget(action) {
-  if (!canEdit() || !state.exhibit || !action?.widget) return false;
+function removeWidgetBaseline(widgetId) {
+  state.widgetHistoryBaselines.delete(widgetId);
+}
 
-  const original = action.widget;
+function clearAppHistory() {
+  state.appUndoStack = [];
+  state.appRedoStack = [];
+  state.lastUndoDomain = null;
+  state.widgetHistoryBaselines.clear();
+}
+
+function trimHistoryStack(stack) {
+  if (stack.length > appUndoLimit) {
+    stack.splice(0, stack.length - appUndoLimit);
+  }
+}
+
+function pushHistory(stack, action) {
+  if (!action) return;
+  stack.push(action);
+  trimHistoryStack(stack);
+}
+
+function pushAppUndo(action) {
+  if (!action || state.isApplyingHistory) return;
+  pushHistory(state.appUndoStack, action);
+  state.appRedoStack = [];
+  state.lastUndoDomain = 'app';
+}
+
+function updateActionWidgetId(action, oldId, newId) {
+  if (action?.widget?.id === oldId) {
+    action.widget.id = newId;
+  }
+}
+
+function remapHistoryWidgetId(oldId, newId) {
+  if (!oldId || !newId || oldId === newId) return;
+  state.appUndoStack.forEach((action) => updateActionWidgetId(action, oldId, newId));
+  state.appRedoStack.forEach((action) => updateActionWidgetId(action, oldId, newId));
+}
+
+function widgetPatchPayload(widget) {
+  return {
+    x: widget.x,
+    y: widget.y,
+    width: widget.width,
+    height: widget.height,
+    zIndex: widget.z_index,
+    pageId: widget.page_id || state.activePageId,
+    data: widgetData(widget)
+  };
+}
+
+async function restoreWidgetSnapshot(action) {
+  if (!canEdit() || !state.exhibit || !action?.widget) return null;
+
+  const original = snapshotWidget(action.widget);
   const { widget } = await api('/api/widgets', {
     method: 'POST',
     body: JSON.stringify({
@@ -1121,20 +1203,14 @@ async function restoreDeletedWidget(action) {
 
   const { widget: saved } = await api(`/api/widgets/${widget.id}`, {
     method: 'PATCH',
-    body: JSON.stringify({
-      x: original.x,
-      y: original.y,
-      width: original.width,
-      height: original.height,
-      zIndex: original.z_index,
-      pageId: original.page_id || state.activePageId,
-      data: widgetData(original)
-    })
+    body: JSON.stringify(widgetPatchPayload({ ...original, id: widget.id }))
   });
 
   const insertAt = clamp(Number(action.index), 0, state.exhibit.widgets.length);
   state.exhibit.widgets.splice(insertAt, 0, saved);
   state.exhibit.widgets.sort((a, b) => (a.z_index - b.z_index) || String(a.created_at).localeCompare(String(b.created_at)));
+  setWidgetBaseline(saved);
+  remapHistoryWidgetId(original.id, saved.id);
   if (saved.page_id) {
     state.activePageId = saved.page_id;
     localStorage.setItem(`caraMiaPage:${state.exhibit.id}`, saved.page_id);
@@ -1142,22 +1218,111 @@ async function restoreDeletedWidget(action) {
   applyBackgroundTheme();
   renderBackgroundPresets();
   renderBoard();
-  showToast('Deleted item restored.');
-  return true;
+  return { type: 'delete-widget', widget: snapshotWidget(saved) };
 }
 
-async function undoLastAppAction() {
-  while (state.appUndoStack.length) {
-    const action = state.appUndoStack.pop();
-    if (action.type !== 'restore-widget') continue;
-    const restored = await restoreDeletedWidget(action);
-    if (restored && !state.appUndoStack.length) {
-      state.lastUndoDomain = null;
+async function deleteWidgetSnapshot(action) {
+  if (!canEdit() || !state.exhibit || !action?.widget?.id) return null;
+
+  const deletedIndex = state.exhibit.widgets.findIndex((item) => item.id === action.widget.id);
+  if (deletedIndex < 0) return null;
+
+  const deletedWidget = snapshotWidget(state.exhibit.widgets[deletedIndex]);
+  window.clearTimeout(state.saveTimers.get(deletedWidget.id));
+  state.saveTimers.delete(deletedWidget.id);
+  await api(`/api/widgets/${deletedWidget.id}`, { method: 'DELETE' });
+  state.exhibit.widgets.splice(deletedIndex, 1);
+  removeWidgetBaseline(deletedWidget.id);
+  renderBoard();
+  return { type: 'restore-widget', widget: deletedWidget, index: deletedIndex };
+}
+
+async function restoreWidgetState(action) {
+  if (!canEdit() || !state.exhibit || !action?.widget?.id) return null;
+
+  const index = state.exhibit.widgets.findIndex((item) => item.id === action.widget.id);
+  if (index < 0) return null;
+
+  const current = snapshotWidget(state.exhibit.widgets[index]);
+  const target = snapshotWidget(action.widget);
+  if (widgetsMatchForHistory(current, target)) return null;
+
+  window.clearTimeout(state.saveTimers.get(target.id));
+  state.saveTimers.delete(target.id);
+  const { widget: saved } = await api(`/api/widgets/${target.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(widgetPatchPayload(target))
+  });
+  state.exhibit.widgets[index] = saved;
+  setWidgetBaseline(saved);
+  if (saved.page_id) {
+    state.activePageId = saved.page_id;
+    localStorage.setItem(`caraMiaPage:${state.exhibit.id}`, saved.page_id);
+  }
+  renderBoard();
+  return { type: 'restore-widget-state', widget: current };
+}
+
+async function restorePageBackground(action) {
+  if (!canEdit() || !state.exhibit || !action?.pageId) return null;
+
+  const page = state.exhibit.pages?.find((item) => item.id === action.pageId);
+  if (!page) return null;
+
+  const currentTheme = backgroundPresets.some((preset) => preset.id === page.backgroundTheme)
+    ? page.backgroundTheme
+    : 'default';
+  const targetTheme = backgroundPresets.some((preset) => preset.id === action.backgroundTheme)
+    ? action.backgroundTheme
+    : 'default';
+  if (currentTheme === targetTheme) return null;
+
+  const { pages } = await api(`/api/exhibits/${state.exhibit.id}/pages/${action.pageId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ backgroundTheme: targetTheme })
+  });
+  state.exhibit.pages = pages;
+  state.activePageId = action.pageId;
+  localStorage.setItem(`caraMiaPage:${state.exhibit.id}`, action.pageId);
+  applyBackgroundTheme();
+  renderBackgroundPresets();
+  return { type: 'restore-page-background', pageId: action.pageId, backgroundTheme: currentTheme };
+}
+
+async function applyHistoryAction(action) {
+  if (action?.type === 'restore-widget') return restoreWidgetSnapshot(action);
+  if (action?.type === 'delete-widget') return deleteWidgetSnapshot(action);
+  if (action?.type === 'restore-widget-state') return restoreWidgetState(action);
+  if (action?.type === 'restore-page-background') return restorePageBackground(action);
+  return null;
+}
+
+async function useHistoryStack(sourceStack, targetStack, message) {
+  while (sourceStack.length) {
+    const action = sourceStack.pop();
+    state.isApplyingHistory = true;
+    try {
+      const reverseAction = await applyHistoryAction(action);
+      if (reverseAction) {
+        pushHistory(targetStack, reverseAction);
+        state.lastUndoDomain = state.appUndoStack.length ? 'app' : null;
+        showToast(message);
+        return true;
+      }
+    } finally {
+      state.isApplyingHistory = false;
     }
-    return restored;
   }
   state.lastUndoDomain = null;
   return false;
+}
+
+async function undoLastAppAction() {
+  return useHistoryStack(state.appUndoStack, state.appRedoStack, 'Undone.');
+}
+
+async function redoLastAppAction() {
+  return useHistoryStack(state.appRedoStack, state.appUndoStack, 'Redone.');
 }
 
 function isTextEditingTarget(target) {
@@ -1245,7 +1410,10 @@ function setQuestionVisualVars(target, data = {}) {
 }
 
 function shapeConfig(data = {}) {
-  return widgetShapes.find((shape) => shape.id === data.shape) || widgetShapes[0];
+  const shapeId = clippedWidgetShapeIds.has(data.shape) ? defaultWidgetShapeId : data.shape;
+  return widgetShapes.find((shape) => shape.id === shapeId)
+    || widgetShapes.find((shape) => shape.id === defaultWidgetShapeId)
+    || widgetShapes[0];
 }
 
 function setWidgetVisualVars(target, data = {}) {
@@ -1369,18 +1537,28 @@ async function createWidget(type, rect, data = {}) {
     body: JSON.stringify(payload)
   });
   state.exhibit.widgets.push(widget);
+  setWidgetBaseline(widget);
+  pushAppUndo({ type: 'delete-widget', widget: snapshotWidget(widget) });
   renderBoard();
   return widget;
 }
 
 function scheduleWidgetSave(widget, patch = {}, delay = 450) {
   if (!canEdit()) return;
+  const before = state.widgetHistoryBaselines.get(widget.id);
   const next = {
     ...widget,
     ...patch,
     data: patch.data || widget.data
   };
   Object.assign(widget, next);
+  if (!state.isApplyingHistory) {
+    const after = snapshotWidget(widget);
+    if (before && !widgetsMatchForHistory(before, after)) {
+      pushAppUndo({ type: 'restore-widget-state', widget: before });
+    }
+    setWidgetBaseline(widget);
+  }
 
   window.clearTimeout(state.saveTimers.get(widget.id));
   state.saveTimers.set(
@@ -1400,6 +1578,7 @@ function scheduleWidgetSave(widget, patch = {}, delay = 450) {
           })
         });
         Object.assign(widget, saved);
+        setWidgetBaseline(widget);
       } catch (error) {
         showToast(error.message);
       } finally {
@@ -1878,15 +2057,16 @@ function widgetShell(widget) {
     remove.innerHTML = '<i data-lucide="trash-2"></i>';
     remove.addEventListener('click', async (event) => {
       event.stopPropagation();
-      const deletedWidget = cloneWidget(widget);
+      const deletedWidget = snapshotWidget(widget);
       const deletedIndex = state.exhibit.widgets.findIndex((item) => item.id === widget.id);
       window.clearTimeout(state.saveTimers.get(widget.id));
       state.saveTimers.delete(widget.id);
       await api(`/api/widgets/${widget.id}`, { method: 'DELETE' });
       state.exhibit.widgets = state.exhibit.widgets.filter((item) => item.id !== widget.id);
+      removeWidgetBaseline(widget.id);
       pushAppUndo({ type: 'restore-widget', widget: deletedWidget, index: deletedIndex });
       renderBoard();
-      showToast('Deleted. Press Ctrl+Z to undo.');
+      showToast('Deleted. Press Ctrl+Z to undo or Ctrl+Y to redo.');
     });
     menu.appendChild(remove);
     element.appendChild(menu);
@@ -2175,33 +2355,6 @@ function updateCanvasBackground(widget, element, nextData, previousBackground) {
   nextData.image = canvas.toDataURL('image/png');
 }
 
-function canvasHistory(canvas) {
-  if (!state.canvasHistories.has(canvas)) {
-    state.canvasHistories.set(canvas, []);
-  }
-  return state.canvasHistories.get(canvas);
-}
-
-function pushCanvasUndo(canvas) {
-  const history = canvasHistory(canvas);
-  const snapshot = canvas.toDataURL('image/png');
-  if (history[history.length - 1] === snapshot) return;
-  history.push(snapshot);
-  state.lastUndoDomain = 'canvas';
-  if (history.length > canvasUndoLimit) history.shift();
-}
-
-function restoreCanvasSnapshot(canvas, context, widget, snapshot) {
-  const image = new Image();
-  image.onload = () => {
-    context.clearRect(0, 0, widget.width, widget.height);
-    context.drawImage(image, 0, 0, widget.width, widget.height);
-    const nextData = setWidgetData(widget, { ...widgetData(widget), image: canvas.toDataURL('image/png') });
-    scheduleWidgetSave(widget, { data: nextData }, 80);
-  };
-  image.src = snapshot;
-}
-
 function brushRgba() {
   const { r, g, b } = parseHexColor(state.brush.color);
   return [r, g, b, 255];
@@ -2401,11 +2554,9 @@ function wireDrawing(canvas, context, widget) {
     if (state.selectedTool !== 'brush') return;
     event.preventDefault();
     event.stopPropagation();
-    state.activeDrawingCanvas = { canvas, context, widget };
     const point = pointFor(event);
 
     if (state.brush.utensil === 'fill') {
-      pushCanvasUndo(canvas);
       if (floodFill(canvas, context, point)) {
         const nextData = setWidgetData(widget, { ...widgetData(widget), image: canvas.toDataURL('image/png') });
         scheduleWidgetSave(widget, { data: nextData }, 80);
@@ -2413,7 +2564,6 @@ function wireDrawing(canvas, context, widget) {
       return;
     }
 
-    pushCanvasUndo(canvas);
     drawing = true;
     last = point;
     state.pendingDrawPoint = null;
@@ -2729,15 +2879,16 @@ function renderBoard() {
   state.exhibit.widgets
     .filter((widget) => (widget.page_id || pageId) === pageId)
     .forEach((widget) => {
-    let element;
-    if (widget.type === 'canvas') element = renderCanvasWidget(widget);
-    if (widget.type === 'wordbox') element = renderWordboxWidget(widget);
-    if (widget.type === 'question') element = renderQuestionWidget(widget);
-    if (widget.type === 'music') element = renderMusicWidget(widget);
-    if (widget.type === 'picture') element = renderPictureWidget(widget);
-    if (widget.type === 'sticker' || widget.type === 'gif') element = renderAssetWidget(widget);
-    if (element) fragment.appendChild(element);
-  });
+      setWidgetBaseline(widget);
+      let element;
+      if (widget.type === 'canvas') element = renderCanvasWidget(widget);
+      if (widget.type === 'wordbox') element = renderWordboxWidget(widget);
+      if (widget.type === 'question') element = renderQuestionWidget(widget);
+      if (widget.type === 'music') element = renderMusicWidget(widget);
+      if (widget.type === 'picture') element = renderPictureWidget(widget);
+      if (widget.type === 'sticker' || widget.type === 'gif') element = renderAssetWidget(widget);
+      if (element) fragment.appendChild(element);
+    });
   board.appendChild(fragment);
 
   setControlsForRole();
@@ -2869,6 +3020,7 @@ async function loadExhibit(id) {
   const { exhibit } = await api(`/api/exhibits/${id}`);
   removeRemoteCursors();
   state.exhibit = exhibit;
+  clearAppHistory();
   const savedPageId = localStorage.getItem(`caraMiaPage:${id}`);
   state.activePageId = exhibit.pages?.some((page) => page.id === savedPageId)
     ? savedPageId
@@ -3034,22 +3186,6 @@ function loadScreenshotLibrary() {
     script.onerror = reject;
     document.head.appendChild(script);
   });
-}
-
-function undoActiveCanvas() {
-  if (!state.activeDrawingCanvas) return false;
-  const { canvas, context, widget } = state.activeDrawingCanvas;
-  const history = canvasHistory(canvas);
-  const snapshot = history.pop();
-  if (!snapshot) {
-    state.lastUndoDomain = state.appUndoStack.length ? 'app' : null;
-    return false;
-  }
-  restoreCanvasSnapshot(canvas, context, widget, snapshot);
-  if (!history.length && state.lastUndoDomain === 'canvas') {
-    state.lastUndoDomain = state.appUndoStack.length ? 'app' : null;
-  }
-  return true;
 }
 
 function prepareScreenshotClone(clonedDocument) {
@@ -3592,33 +3728,18 @@ brushSize.addEventListener('input', () => {
 });
 
 window.addEventListener('keydown', async (event) => {
-  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  const key = event.key.toLowerCase();
+  const wantsUndo = key === 'z' && !event.shiftKey;
+  const wantsRedo = key === 'y' || (key === 'z' && event.shiftKey);
+  if (!wantsUndo && !wantsRedo) return;
   if (isTextEditingTarget(event.target)) return;
-  const appUndoFirst = state.lastUndoDomain === 'app';
-  if (appUndoFirst) {
-    try {
-      if (await undoLastAppAction()) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-    } catch (error) {
-      showToast(error.message);
-      return;
-    }
-  }
 
-  if (undoActiveCanvas()) {
-    event.preventDefault();
-    event.stopPropagation();
-    return;
-  }
-
+  event.preventDefault();
+  event.stopPropagation();
   try {
-    if (!appUndoFirst && await undoLastAppAction()) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
+    const handled = wantsRedo ? await redoLastAppAction() : await undoLastAppAction();
+    if (!handled) showToast(wantsRedo ? 'Nothing to redo.' : 'Nothing to undo.');
   } catch (error) {
     showToast(error.message);
   }

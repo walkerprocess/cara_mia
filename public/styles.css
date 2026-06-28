@@ -1704,28 +1704,8 @@ select:focus {
   border-radius: 999px 999px 3px 3px;
 }
 
-.shape-diamond::before {
-  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-}
-
 .shape-ticket::before {
   border-radius: 9px 2px 9px 2px;
-}
-
-.shape-heart::before {
-  clip-path: polygon(50% 92%, 14% 58%, 6% 36%, 12% 18%, 27% 8%, 42% 14%, 50% 28%, 58% 14%, 73% 8%, 88% 18%, 94% 36%, 86% 58%);
-}
-
-.shape-star::before {
-  clip-path: polygon(50% 3%, 61% 35%, 95% 35%, 67% 54%, 78% 90%, 50% 68%, 22% 90%, 33% 54%, 5% 35%, 39% 35%);
-}
-
-.shape-hex::before {
-  clip-path: polygon(25% 5%, 75% 5%, 98% 50%, 75% 95%, 25% 95%, 2% 50%);
-}
-
-.shape-gem::before {
-  clip-path: polygon(50% 0, 92% 24%, 80% 100%, 20% 100%, 8% 24%);
 }
 
 .move-handle {
