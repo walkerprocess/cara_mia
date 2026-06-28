@@ -3288,10 +3288,11 @@ resetPasswordForm.addEventListener('submit', async (event) => {
   }
 
   try {
-    await api('/api/password/reset', {
+    const resetEmail = String(form.get('email') || '').trim().toLowerCase();
+    const { accountId } = await api('/api/password/reset', {
       method: 'POST',
       body: JSON.stringify({
-        email: form.get('email'),
+        email: resetEmail,
         resetToken: state.pendingPasswordReset.resetToken,
         newPassword: form.get('newPassword'),
         newPasswordConfirm: form.get('newPasswordConfirm')
@@ -3306,6 +3307,7 @@ resetPasswordForm.addEventListener('submit', async (event) => {
     state.exhibit = null;
     setView('auth');
     showLogin();
+    loginForm.elements.accountId.value = accountId || resetEmail;
     loginForm.elements.accountId.focus();
     showToast('Password reset. Log in with your new password.');
   } catch (error) {

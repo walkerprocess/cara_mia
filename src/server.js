@@ -65,6 +65,18 @@ function validPassword(password) {
   return typeof password === 'string' && password.length >= 8 && password.length <= 256;
 }
 
+async function findLoginUser(identifier) {
+  const value = String(identifier || '').trim().toLowerCase();
+  if (!value) return null;
+  if (validEmail(value)) {
+    return get('SELECT * FROM users WHERE email = ?', [value]);
+  }
+
+  const accountId = normalizeAccountId(value);
+  if (!validAccountId(accountId)) return null;
+  return get('SELECT * FROM users WHERE account_id = ?', [accountId]);
+}
+
 function normalizeAuthCode(value) {
   return String(value || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
 }
@@ -780,12 +792,12 @@ app.post('/api/signup/verify', async (req, res, next) => {
 
 app.post('/api/login', async (req, res, next) => {
   try {
-    const accountId = normalizeAccountId(req.body.accountId);
+    const identifier = req.body.accountId || req.body.identifier;
     const password = String(req.body.password || '');
-    const user = await get('SELECT * FROM users WHERE account_id = ?', [accountId]);
+    const user = await findLoginUser(identifier);
 
     if (!user || !(await verifyPassword(password, user.password_hash))) {
-      return res.status(401).json({ error: 'The account id or password is incorrect.' });
+      return res.status(401).json({ error: 'The ID/email or password is incorrect.' });
     }
     if (!Boolean(user.email_verified)) {
       return res.status(403).json({ error: 'Verify your email before logging in.' });
@@ -895,7 +907,7 @@ app.post('/api/password/reset', async (req, res, next) => {
     await query('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(newPassword), user.id]);
     scheduleDatabaseExport();
     clearSessionCookie(res);
-    res.json({ ok: true });
+    res.json({ ok: true, accountId: user.account_id });
   } catch (error) {
     next(error);
   }
