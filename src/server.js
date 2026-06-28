@@ -69,12 +69,16 @@ async function findLoginUser(identifier) {
   const value = String(identifier || '').trim().toLowerCase();
   if (!value) return null;
   if (validEmail(value)) {
-    return get('SELECT * FROM users WHERE email = ?', [value]);
+    return get('SELECT * FROM users WHERE LOWER(TRIM(email)) = ?', [value]);
   }
 
+  return findUserByAccountId(value);
+}
+
+async function findUserByAccountId(value) {
   const accountId = normalizeAccountId(value);
   if (!validAccountId(accountId)) return null;
-  return get('SELECT * FROM users WHERE account_id = ?', [accountId]);
+  return get('SELECT * FROM users WHERE LOWER(TRIM(account_id)) = ?', [accountId]);
 }
 
 function normalizeAuthCode(value) {
@@ -709,7 +713,7 @@ app.post('/api/signup', async (req, res, next) => {
       return res.status(409).json({ error: 'That email already has an account.' });
     }
 
-    const existingAccount = await get('SELECT * FROM users WHERE account_id = ?', [accountId]);
+    const existingAccount = await findUserByAccountId(accountId);
     if (existingAccount && existingAccount.id !== existingEmail?.id) {
       return res.status(409).json({ error: 'That account id is already taken.' });
     }
@@ -774,7 +778,7 @@ app.post('/api/signup/verify', async (req, res, next) => {
     const accountId = normalizeAccountId(req.body.accountId);
     const code = normalizeAuthCode(req.body.code);
 
-    const user = await get('SELECT * FROM users WHERE email = ? AND account_id = ?', [email, accountId]);
+    const user = await get('SELECT * FROM users WHERE email = ? AND LOWER(TRIM(account_id)) = ?', [email, accountId]);
     if (!user || Boolean(user.email_verified) || !(await verifyAuthCode(user, 'signup', code))) {
       return res.status(400).json({ error: 'That verification code did not match or has expired.' });
     }
