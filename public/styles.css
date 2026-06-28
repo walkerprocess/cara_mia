@@ -417,6 +417,15 @@ select:focus {
   line-height: 1.35;
 }
 
+.form-error-note {
+  display: none;
+  color: #d9163c;
+}
+
+.form-error-note.show {
+  display: block;
+}
+
 .auth-form input[name="code"] {
   text-transform: uppercase;
   letter-spacing: 4px;

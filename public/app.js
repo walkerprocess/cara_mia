@@ -283,6 +283,10 @@ const cursorDialog = $('#cursorDialog');
 const accountUsername = $('#accountUsername');
 const accountEmail = $('#accountEmail');
 const changePasswordForm = $('#changePasswordForm');
+const changeCurrentPasswordField = $('#changeCurrentPasswordField');
+const changeNewPasswordField = $('#changeNewPasswordField');
+const changeNewPasswordConfirmField = $('#changeNewPasswordConfirmField');
+const changePasswordNote = $('#changePasswordNote');
 const settingsForgotPasswordButton = $('#settingsForgotPasswordButton');
 const cursorPreview = $('#cursorPreview');
 const cursorColorInput = $('#cursorColorInput');
@@ -781,6 +785,12 @@ function clearFieldError(field) {
 
 function markFieldError(field) {
   field?.classList.add('field-error');
+}
+
+function setInlineError(element, message = '') {
+  if (!element) return;
+  element.textContent = message;
+  element.classList.toggle('show', Boolean(message));
 }
 
 function setVerifyStatus(element, status) {
@@ -3283,7 +3293,7 @@ resetPasswordForm.addEventListener('submit', async (event) => {
   if (String(form.get('newPassword') || '') !== String(form.get('newPasswordConfirm') || '')) {
     markFieldError(resetNewPasswordField);
     markFieldError(resetNewPasswordConfirmField);
-    showToast('Passwords do not match.');
+    resetPasswordNote.textContent = 'Passwords do not match.';
     return;
   }
 
@@ -3394,6 +3404,8 @@ exhibitPicker.addEventListener('change', () => {
 cursorSettingsButton.addEventListener('click', () => {
   renderAccountSettings();
   changePasswordForm.reset();
+  [changeCurrentPasswordField, changeNewPasswordField, changeNewPasswordConfirmField].forEach(clearFieldError);
+  setInlineError(changePasswordNote);
   renderCursorPreview();
   renderBackgroundPresets();
   cursorDialog.showModal();
@@ -3402,8 +3414,12 @@ cursorSettingsButton.addEventListener('click', () => {
 changePasswordForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(changePasswordForm);
+  [changeCurrentPasswordField, changeNewPasswordField, changeNewPasswordConfirmField].forEach(clearFieldError);
+  setInlineError(changePasswordNote);
   if (String(form.get('newPassword') || '') !== String(form.get('newPasswordConfirm') || '')) {
-    showToast('Passwords do not match.');
+    markFieldError(changeNewPasswordField);
+    markFieldError(changeNewPasswordConfirmField);
+    setInlineError(changePasswordNote, 'Passwords do not match.');
     return;
   }
   try {
@@ -3420,7 +3436,14 @@ changePasswordForm.addEventListener('submit', async (event) => {
     renderAccountSettings();
     showToast('Password changed.');
   } catch (error) {
-    showToast(error.message);
+    const message = error.message || 'Password could not be changed.';
+    if (message.toLowerCase().includes('current')) {
+      markFieldError(changeCurrentPasswordField);
+    } else {
+      markFieldError(changeNewPasswordField);
+      markFieldError(changeNewPasswordConfirmField);
+    }
+    setInlineError(changePasswordNote, message);
   }
 });
 

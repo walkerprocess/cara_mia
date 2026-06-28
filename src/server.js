@@ -65,11 +65,18 @@ function validPassword(password) {
   return typeof password === 'string' && password.length >= 8 && password.length <= 256;
 }
 
+function validUserId(userId) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(userId);
+}
+
 async function findLoginUser(identifier) {
   const value = String(identifier || '').trim().toLowerCase();
   if (!value) return null;
   if (validEmail(value)) {
     return get('SELECT * FROM users WHERE LOWER(TRIM(email)) = ?', [value]);
+  }
+  if (validUserId(value)) {
+    return get('SELECT * FROM users WHERE LOWER(TRIM(id)) = ?', [value]);
   }
 
   return findUserByAccountId(value);

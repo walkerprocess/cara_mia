@@ -19,7 +19,7 @@
         <h1>Cara Mia</h1>
         <form id="loginForm" class="auth-form">
           <label>
-            <span>ID or email</span>
+            <span>ID, user ID, or email</span>
             <input name="accountId" autocomplete="username" required />
           </label>
           <label>
@@ -217,18 +217,19 @@
         <section class="settings-section">
           <h3>Reset password</h3>
           <form id="changePasswordForm" class="settings-form">
-            <label>
+            <label id="changeCurrentPasswordField">
               <span>Current password</span>
               <input name="currentPassword" type="password" autocomplete="current-password" required />
             </label>
-            <label>
+            <label id="changeNewPasswordField">
               <span>New password</span>
               <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
             </label>
-            <label>
+            <label id="changeNewPasswordConfirmField">
               <span>Confirm new password</span>
               <input name="newPasswordConfirm" type="password" autocomplete="new-password" minlength="8" required />
             </label>
+            <p id="changePasswordNote" class="auth-note form-error-note"></p>
             <button class="primary-button" type="submit">Change password</button>
             <button id="settingsForgotPasswordButton" class="text-button" type="button">Forgot password?</button>
           </form>
