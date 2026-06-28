@@ -832,6 +832,27 @@ app.get('/api/me', requireAuth, (req, res) => {
   res.json({ user: req.publicUser });
 });
 
+app.post('/api/account/username', requireAuth, async (req, res, next) => {
+  try {
+    const accountId = normalizeAccountId(req.body.accountId);
+    if (!validAccountId(accountId)) {
+      return res.status(400).json({ error: 'Use 3-32 letters, numbers, dots, dashes, or underscores.' });
+    }
+
+    const existingAccount = await findUserByAccountId(accountId);
+    if (existingAccount && existingAccount.id !== req.user.id) {
+      return res.status(409).json({ error: 'That username is already taken.' });
+    }
+
+    await query('UPDATE users SET account_id = ? WHERE id = ?', [accountId, req.user.id]);
+    scheduleDatabaseExport();
+    const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+    res.json({ ok: true, user: publicUser(user) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/account/password', requireAuth, async (req, res, next) => {
   try {
     const currentPassword = String(req.body.currentPassword || '');

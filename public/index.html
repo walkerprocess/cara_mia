@@ -215,6 +215,17 @@
           </div>
         </section>
         <section class="settings-section">
+          <h3>Change username</h3>
+          <form id="changeUsernameForm" class="settings-form">
+            <label id="changeUsernameField">
+              <span>New username</span>
+              <input name="accountId" autocomplete="username" minlength="3" maxlength="32" required />
+            </label>
+            <p id="changeUsernameNote" class="auth-note form-error-note"></p>
+            <button class="primary-button" type="submit">Change username</button>
+          </form>
+        </section>
+        <section class="settings-section">
           <h3>Reset password</h3>
           <form id="changePasswordForm" class="settings-form">
             <label id="changeCurrentPasswordField">

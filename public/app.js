@@ -282,6 +282,9 @@ const pageNameInput = $('#pageNameInput');
 const cursorDialog = $('#cursorDialog');
 const accountUsername = $('#accountUsername');
 const accountEmail = $('#accountEmail');
+const changeUsernameForm = $('#changeUsernameForm');
+const changeUsernameField = $('#changeUsernameField');
+const changeUsernameNote = $('#changeUsernameNote');
 const changePasswordForm = $('#changePasswordForm');
 const changeCurrentPasswordField = $('#changeCurrentPasswordField');
 const changeNewPasswordField = $('#changeNewPasswordField');
@@ -863,6 +866,9 @@ function showSignup() {
 function renderAccountSettings() {
   accountUsername.textContent = state.user?.accountId || '-';
   accountEmail.textContent = state.user?.email || '-';
+  if (changeUsernameForm) {
+    changeUsernameForm.elements.accountId.value = state.user?.accountId || '';
+  }
 }
 
 function openPasswordResetDialog(email = '') {
@@ -3403,12 +3409,41 @@ exhibitPicker.addEventListener('change', () => {
 
 cursorSettingsButton.addEventListener('click', () => {
   renderAccountSettings();
+  clearFieldError(changeUsernameField);
+  setInlineError(changeUsernameNote);
   changePasswordForm.reset();
   [changeCurrentPasswordField, changeNewPasswordField, changeNewPasswordConfirmField].forEach(clearFieldError);
   setInlineError(changePasswordNote);
   renderCursorPreview();
   renderBackgroundPresets();
   cursorDialog.showModal();
+});
+
+changeUsernameForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(changeUsernameForm);
+  const accountId = String(form.get('accountId') || '').trim().toLowerCase();
+  clearFieldError(changeUsernameField);
+  setInlineError(changeUsernameNote);
+
+  if (!validAccountIdValue(accountId)) {
+    markFieldError(changeUsernameField);
+    setInlineError(changeUsernameNote, 'Use 3-32 letters, numbers, dots, dashes, or underscores.');
+    return;
+  }
+
+  try {
+    const { user } = await api('/api/account/username', {
+      method: 'POST',
+      body: JSON.stringify({ accountId })
+    });
+    state.user = user;
+    renderAccountSettings();
+    showToast('Username changed.');
+  } catch (error) {
+    markFieldError(changeUsernameField);
+    setInlineError(changeUsernameNote, error.message || 'Username could not be changed.');
+  }
 });
 
 changePasswordForm.addEventListener('submit', async (event) => {
