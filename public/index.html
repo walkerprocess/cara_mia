@@ -59,6 +59,10 @@
             <span>Password</span>
             <input name="password" type="password" autocomplete="new-password" minlength="8" required />
           </label>
+          <label id="signupPasswordConfirmField">
+            <span>Confirm password</span>
+            <input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
           <button id="signupCreateButton" class="primary-button" type="submit">Create account</button>
           <button id="showLoginButton" class="secondary-button" type="button">Back to login</button>
         </form>
@@ -221,6 +225,10 @@
               <span>New password</span>
               <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
             </label>
+            <label>
+              <span>Confirm new password</span>
+              <input name="newPasswordConfirm" type="password" autocomplete="new-password" minlength="8" required />
+            </label>
             <button class="primary-button" type="submit">Change password</button>
             <button id="settingsForgotPasswordButton" class="text-button" type="button">Forgot password?</button>
           </form>
@@ -300,7 +308,11 @@
           </div>
           <label id="resetNewPasswordField" class="hidden">
             <span>New password</span>
-            <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+            <input name="newPassword" type="password" autocomplete="new-password" minlength="8" />
+          </label>
+          <label id="resetNewPasswordConfirmField" class="hidden">
+            <span>Confirm new password</span>
+            <input name="newPasswordConfirm" type="password" autocomplete="new-password" minlength="8" />
           </label>
           <button id="applyResetPasswordButton" class="primary-button hidden" type="submit">Reset password</button>
           <button id="resetPasswordBackButton" class="text-button" type="button">Use a different email</button>

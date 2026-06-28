@@ -246,6 +246,7 @@ const signupCodeInput = $('#signupCodeInput');
 const verifySignupCodeButton = $('#verifySignupCodeButton');
 const signupAccountField = $('#signupAccountField');
 const signupPasswordField = $('#signupPasswordField');
+const signupPasswordConfirmField = $('#signupPasswordConfirmField');
 const showSignupButton = $('#showSignupButton');
 const showLoginButton = $('#showLoginButton');
 const board = $('#board');
@@ -308,6 +309,7 @@ const resetCodeField = $('#resetCodeField');
 const resetCodeStatus = $('#resetCodeStatus');
 const verifyResetCodeButton = $('#verifyResetCodeButton');
 const resetNewPasswordField = $('#resetNewPasswordField');
+const resetNewPasswordConfirmField = $('#resetNewPasswordConfirmField');
 const applyResetPasswordButton = $('#applyResetPasswordButton');
 const resetPasswordBackButton = $('#resetPasswordBackButton');
 
@@ -862,10 +864,12 @@ function openPasswordResetDialog(email = '') {
   resetPasswordForm.elements.email.value = String(email || '').trim().toLowerCase();
   resetPasswordNote.textContent = '';
   resetNewPasswordField.classList.add('hidden');
+  resetNewPasswordConfirmField.classList.add('hidden');
   applyResetPasswordButton.classList.add('hidden');
   setVerifyStatus(resetCodeStatus, null);
   clearFieldError(resetCodeField);
   clearFieldError(resetNewPasswordField);
+  clearFieldError(resetNewPasswordConfirmField);
   if (email) {
     forgotPasswordForm.elements.email.value = email;
   }
@@ -881,7 +885,9 @@ function showResetPasswordStep(email) {
   resetPasswordNote.textContent = `Enter the code sent to ${email}.`;
   resetPasswordForm.elements.code.value = '';
   resetPasswordForm.elements.newPassword.value = '';
+  resetPasswordForm.elements.newPasswordConfirm.value = '';
   resetNewPasswordField.classList.add('hidden');
+  resetNewPasswordConfirmField.classList.add('hidden');
   applyResetPasswordButton.classList.add('hidden');
   setVerifyStatus(resetCodeStatus, null);
   clearFieldError(resetCodeField);
@@ -3110,7 +3116,8 @@ signupForm.addEventListener('submit', async (event) => {
   const email = signupEmail();
   const accountId = String(form.get('accountId') || '').trim().toLowerCase();
   const password = String(form.get('password') || '');
-  [signupEmailField, signupCodeField, signupAccountField, signupPasswordField].forEach(clearFieldError);
+  const passwordConfirm = String(form.get('passwordConfirm') || '');
+  [signupEmailField, signupCodeField, signupAccountField, signupPasswordField, signupPasswordConfirmField].forEach(clearFieldError);
 
   if (!validEmailValue(email)) {
     markFieldError(signupEmailField);
@@ -3135,6 +3142,12 @@ signupForm.addEventListener('submit', async (event) => {
     showToast('Use a password with at least 8 characters.');
     return;
   }
+  if (password !== passwordConfirm) {
+    markFieldError(signupPasswordField);
+    markFieldError(signupPasswordConfirmField);
+    showToast('Passwords do not match.');
+    return;
+  }
 
   try {
     const { user } = await api('/api/signup', {
@@ -3142,7 +3155,8 @@ signupForm.addEventListener('submit', async (event) => {
       body: JSON.stringify({
         email,
         accountId,
-        password
+        password,
+        passwordConfirm
       })
     });
     state.user = user;
@@ -3156,6 +3170,7 @@ signupForm.addEventListener('submit', async (event) => {
     if (message.includes('email')) markFieldError(signupEmailField);
     if (message.includes('account')) markFieldError(signupAccountField);
     if (message.includes('password')) markFieldError(signupPasswordField);
+    if (message.includes('match')) markFieldError(signupPasswordConfirmField);
     showToast(error.message);
   }
 });
@@ -3254,6 +3269,7 @@ resetPasswordForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(resetPasswordForm);
   clearFieldError(resetNewPasswordField);
+  clearFieldError(resetNewPasswordConfirmField);
   if (!state.pendingPasswordReset?.resetToken) {
     markFieldError(resetCodeField);
     showToast('Verify the reset code first.');
@@ -3264,23 +3280,34 @@ resetPasswordForm.addEventListener('submit', async (event) => {
     showToast('Use a password with at least 8 characters.');
     return;
   }
+  if (String(form.get('newPassword') || '') !== String(form.get('newPasswordConfirm') || '')) {
+    markFieldError(resetNewPasswordField);
+    markFieldError(resetNewPasswordConfirmField);
+    showToast('Passwords do not match.');
+    return;
+  }
 
   try {
-    const { user } = await api('/api/password/reset', {
+    await api('/api/password/reset', {
       method: 'POST',
       body: JSON.stringify({
         email: form.get('email'),
         resetToken: state.pendingPasswordReset.resetToken,
-        newPassword: form.get('newPassword')
+        newPassword: form.get('newPassword'),
+        newPasswordConfirm: form.get('newPasswordConfirm')
       })
     });
-    state.user = user;
     state.pendingPasswordReset = null;
     passwordResetDialog.close();
     forgotPasswordForm.reset();
     resetPasswordForm.reset();
-    await enterStudio();
-    showToast('Password reset.');
+    closeLiveEvents();
+    state.user = null;
+    state.exhibit = null;
+    setView('auth');
+    showLogin();
+    loginForm.elements.accountId.focus();
+    showToast('Password reset. Log in with your new password.');
   } catch (error) {
     showToast(error.message);
   }
@@ -3306,6 +3333,7 @@ verifyResetCodeButton.addEventListener('click', async () => {
     setVerifyStatus(resetCodeStatus, 'verified');
     resetPasswordNote.textContent = 'Code verified. Choose a new password.';
     resetNewPasswordField.classList.remove('hidden');
+    resetNewPasswordConfirmField.classList.remove('hidden');
     applyResetPasswordButton.classList.remove('hidden');
     resetPasswordForm.elements.newPassword.focus();
     showToast('Reset code verified.');
@@ -3322,6 +3350,7 @@ resetPasswordForm.elements.code.addEventListener('input', () => {
   state.pendingPasswordReset.resetToken = null;
   setVerifyStatus(resetCodeStatus, null);
   resetNewPasswordField.classList.add('hidden');
+  resetNewPasswordConfirmField.classList.add('hidden');
   applyResetPasswordButton.classList.add('hidden');
 });
 
@@ -3330,6 +3359,7 @@ forgotPasswordForm.elements.email.addEventListener('input', () => {
   state.pendingPasswordReset = null;
   setVerifyStatus(resetCodeStatus, null);
   resetNewPasswordField.classList.add('hidden');
+  resetNewPasswordConfirmField.classList.add('hidden');
   applyResetPasswordButton.classList.add('hidden');
 });
 
@@ -3340,6 +3370,7 @@ resetPasswordBackButton.addEventListener('click', () => {
   resetPasswordForm.reset();
   resetPasswordNote.textContent = '';
   resetNewPasswordField.classList.add('hidden');
+  resetNewPasswordConfirmField.classList.add('hidden');
   applyResetPasswordButton.classList.add('hidden');
   setVerifyStatus(resetCodeStatus, null);
   forgotPasswordForm.elements.email.focus();
@@ -3369,12 +3400,17 @@ cursorSettingsButton.addEventListener('click', () => {
 changePasswordForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(changePasswordForm);
+  if (String(form.get('newPassword') || '') !== String(form.get('newPasswordConfirm') || '')) {
+    showToast('Passwords do not match.');
+    return;
+  }
   try {
     const { user } = await api('/api/account/password', {
       method: 'POST',
       body: JSON.stringify({
         currentPassword: form.get('currentPassword'),
-        newPassword: form.get('newPassword')
+        newPassword: form.get('newPassword'),
+        newPasswordConfirm: form.get('newPasswordConfirm')
       })
     });
     state.user = user;

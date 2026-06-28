@@ -677,6 +677,7 @@ app.post('/api/signup', async (req, res, next) => {
     const email = normalizeEmail(req.body.email);
     const accountId = normalizeAccountId(req.body.accountId);
     const password = String(req.body.password || '');
+    const passwordConfirm = String(req.body.passwordConfirm || '');
 
     if (!validEmail(email)) {
       return res.status(400).json({ error: 'Enter a valid email address.' });
@@ -686,6 +687,9 @@ app.post('/api/signup', async (req, res, next) => {
     }
     if (!validPassword(password)) {
       return res.status(400).json({ error: 'Use a password with at least 8 characters.' });
+    }
+    if (password !== passwordConfirm) {
+      return res.status(400).json({ error: 'Passwords do not match.' });
     }
 
     const existingEmail = await get('SELECT * FROM users WHERE email = ?', [email]);
@@ -809,12 +813,16 @@ app.post('/api/account/password', requireAuth, async (req, res, next) => {
   try {
     const currentPassword = String(req.body.currentPassword || '');
     const newPassword = String(req.body.newPassword || '');
+    const newPasswordConfirm = String(req.body.newPasswordConfirm || '');
 
     if (!(await verifyPassword(currentPassword, req.user.password_hash))) {
       return res.status(401).json({ error: 'The current password is incorrect.' });
     }
     if (!validPassword(newPassword)) {
       return res.status(400).json({ error: 'Use a new password with at least 8 characters.' });
+    }
+    if (newPassword !== newPasswordConfirm) {
+      return res.status(400).json({ error: 'Passwords do not match.' });
     }
 
     await query('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(newPassword), req.user.id]);
@@ -867,9 +875,13 @@ app.post('/api/password/reset', async (req, res, next) => {
     const email = normalizeEmail(req.body.email);
     const code = normalizeAuthCode(req.body.code);
     const newPassword = String(req.body.newPassword || '');
+    const newPasswordConfirm = String(req.body.newPasswordConfirm || '');
     const resetToken = String(req.body.resetToken || '');
     if (!validEmail(email) || !validPassword(newPassword)) {
       return res.status(400).json({ error: 'Enter the email and a password with at least 8 characters.' });
+    }
+    if (newPassword !== newPasswordConfirm) {
+      return res.status(400).json({ error: 'Passwords do not match.' });
     }
 
     const user = await get('SELECT * FROM users WHERE email = ?', [email]);
@@ -881,11 +893,9 @@ app.post('/api/password/reset', async (req, res, next) => {
     }
 
     await query('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(newPassword), user.id]);
-    await ensureDefaultExhibit(user.id);
     scheduleDatabaseExport();
-    setSessionCookie(res, user.id);
-    const savedUser = await get('SELECT * FROM users WHERE id = ?', [user.id]);
-    res.json({ ok: true, user: publicUser(savedUser) });
+    clearSessionCookie(res);
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }
