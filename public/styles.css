@@ -1226,6 +1226,8 @@ select:focus {
 }
 
 .picture-widget {
+  position: relative;
+  isolation: isolate;
   width: 100%;
   height: 100%;
   display: grid;
@@ -1237,6 +1239,8 @@ select:focus {
 }
 
 .picture-widget img {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -1245,47 +1249,110 @@ select:focus {
   pointer-events: none;
 }
 
-.picture-frame-clean {
-  padding: 0;
-  background: transparent;
+.picture-frame-fourcut {
+  padding: 16px 16px 48px;
+  background:
+    linear-gradient(#fbfaf6, #fbfaf6) padding-box,
+    linear-gradient(135deg, #050406, #ef314d, #ffc857) border-box;
+  border: 2px solid transparent;
 }
 
-.picture-frame-classic {
-  padding: 10px;
-  background: #fff;
-  border: 1px solid rgba(5, 4, 6, 0.12);
+.picture-frame-fourcut::after {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  z-index: 2;
+  content: "CARA MIA";
+  color: rgba(5, 4, 6, 0.78);
+  border-top: 1px solid rgba(5, 4, 6, 0.12);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 22px;
+  text-align: center;
 }
 
-.picture-frame-polaroid {
-  padding: 14px 14px 42px;
-  background: #fff;
+.picture-frame-stamp {
+  padding: 14px 14px 52px;
+  background:
+    radial-gradient(circle at 20px 20px, rgba(255, 255, 255, 0.86) 0 8px, transparent 9px),
+    radial-gradient(circle at calc(100% - 20px) 20px, rgba(255, 255, 255, 0.86) 0 8px, transparent 9px),
+    linear-gradient(135deg, #eaf9ff, #ffe4ef 58%, #fff7c7);
   border: 1px solid rgba(5, 4, 6, 0.1);
 }
 
-.picture-frame-film {
-  padding: 16px;
-  background:
-    repeating-linear-gradient(
-        90deg,
-        #0a080b 0 10px,
-        #fff 10px 15px,
-        #0a080b 15px 25px
-      )
-      top / 100% 12px no-repeat,
-    repeating-linear-gradient(
-        90deg,
-        #0a080b 0 10px,
-        #fff 10px 15px,
-        #0a080b 15px 25px
-      )
-      bottom / 100% 12px no-repeat,
-    #0a080b;
+.picture-frame-stamp::after {
+  position: absolute;
+  right: 14px;
+  bottom: 16px;
+  left: 14px;
+  z-index: 2;
+  content: "LOVE 4 CUTS";
+  color: #050406;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(5, 4, 6, 0.12);
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 22px;
+  text-align: center;
 }
 
-.picture-frame-heart {
-  padding: 14px;
-  background: linear-gradient(135deg, #fff5f8, #f1bfd4);
-  border: 2px solid rgba(239, 49, 77, 0.32);
+.picture-frame-ticket {
+  padding: 18px;
+  background:
+    radial-gradient(circle at 0 50%, transparent 0 12px, #fffaf0 13px),
+    radial-gradient(circle at 100% 50%, transparent 0 12px, #fffaf0 13px),
+    repeating-linear-gradient(90deg, transparent 0 10px, rgba(5, 4, 6, 0.14) 10px 12px),
+    #fffaf0;
+  border: 1px dashed rgba(5, 4, 6, 0.36);
+}
+
+.picture-frame-ticket::after {
+  position: absolute;
+  inset: 9px;
+  z-index: 2;
+  content: "";
+  border: 1px dashed rgba(5, 4, 6, 0.18);
+  border-radius: calc(var(--widget-radius, 8px) - 2px);
+  pointer-events: none;
+}
+
+.picture-frame-filmbooth {
+  padding: 22px 20px;
+  background:
+    repeating-linear-gradient(90deg, #050406 0 12px, #fff 12px 17px, #050406 17px 29px)
+      top / 100% 14px no-repeat,
+    repeating-linear-gradient(90deg, #050406 0 12px, #fff 12px 17px, #050406 17px 29px)
+      bottom / 100% 14px no-repeat,
+    linear-gradient(135deg, #050406, #151216);
+}
+
+.picture-frame-filmbooth img {
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.picture-frame-stickerpop {
+  padding: 18px;
+  background:
+    radial-gradient(circle at 18px 18px, #ef314d 0 7px, transparent 8px),
+    radial-gradient(circle at calc(100% - 22px) 24px, #ffc857 0 7px, transparent 8px),
+    radial-gradient(circle at 26px calc(100% - 22px), #2de2e6 0 7px, transparent 8px),
+    linear-gradient(135deg, #fff6fb, #f4ebff);
+  border: 2px solid rgba(255, 255, 255, 0.7);
+}
+
+.picture-frame-stickerpop::after {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 2;
+  width: 30px;
+  height: 26px;
+  content: "";
+  background: #ef314d;
+  clip-path: polygon(50% 92%, 12% 56%, 4% 32%, 13% 14%, 31% 8%, 50% 28%, 69% 8%, 87% 14%, 96% 32%, 88% 56%);
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.24));
 }
 
 .sticker-shell,
@@ -1846,43 +1913,42 @@ select:focus {
   background: rgba(255, 255, 255, 0.9);
 }
 
-.frame-classic::before {
-  border: 3px solid #fff;
-  box-shadow: 0 0 0 1px rgba(5, 4, 6, 0.38);
+.frame-fourcut::before {
+  height: 24px;
+  background: #fbfaf6;
+  border: 2px solid #050406;
+  border-bottom-width: 8px;
 }
 
-.frame-polaroid::before {
-  height: 23px;
-  border: 3px solid #fff;
-  border-bottom-width: 9px;
-  box-shadow: 0 0 0 1px rgba(5, 4, 6, 0.34);
+.frame-stamp::before {
+  height: 24px;
+  background: linear-gradient(135deg, #eaf9ff, #ffe4ef 58%, #fff7c7);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-bottom-width: 8px;
 }
 
-.frame-film::before {
-  background: repeating-linear-gradient(
-    90deg,
-    #050406 0 4px,
-    #fff 4px 6px,
-    #050406 6px 10px
-  );
+.frame-ticket::before {
+  background: #fffaf0;
+  border: 2px dashed rgba(5, 4, 6, 0.7);
 }
 
-.frame-heart::before {
-  background: #f1bfd4;
-  clip-path: polygon(
-    50% 92%,
-    14% 58%,
-    6% 36%,
-    12% 18%,
-    27% 8%,
-    42% 14%,
-    50% 28%,
-    58% 14%,
-    73% 8%,
-    88% 18%,
-    94% 36%,
-    86% 58%
-  );
+.frame-filmbooth::before {
+  height: 22px;
+  background:
+    repeating-linear-gradient(90deg, #050406 0 4px, #fff 4px 6px, #050406 6px 10px)
+      top / 100% 5px no-repeat,
+    repeating-linear-gradient(90deg, #050406 0 4px, #fff 4px 6px, #050406 6px 10px)
+      bottom / 100% 5px no-repeat,
+    #050406;
+}
+
+.frame-stickerpop::before {
+  background:
+    radial-gradient(circle at 20% 22%, #ef314d 0 3px, transparent 4px),
+    radial-gradient(circle at 82% 24%, #ffc857 0 3px, transparent 4px),
+    radial-gradient(circle at 28% 82%, #2de2e6 0 3px, transparent 4px),
+    #fff6fb;
+  border: 2px solid rgba(255, 255, 255, 0.88);
 }
 
 .frame-button.active {

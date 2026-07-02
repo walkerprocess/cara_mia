@@ -96,12 +96,19 @@ const clippedWidgetShapeIds = new Set([
   "gem",
 ]);
 const pictureFrames = [
-  { id: "clean", label: "Clean" },
-  { id: "classic", label: "Classic" },
-  { id: "polaroid", label: "Polaroid" },
-  { id: "film", label: "Film" },
-  { id: "heart", label: "Heart" },
+  { id: "fourcut", label: "Four-cut booth" },
+  { id: "stamp", label: "Date stamp" },
+  { id: "ticket", label: "Ticket frame" },
+  { id: "filmbooth", label: "Film booth" },
+  { id: "stickerpop", label: "Sticker pop" },
 ];
+const legacyPictureFrames = {
+  clean: "fourcut",
+  classic: "fourcut",
+  polaroid: "stamp",
+  film: "filmbooth",
+  heart: "stickerpop",
+};
 const questionPresets = {
   romantic: [
     "What tiny thing made you feel loved today?",
@@ -220,6 +227,8 @@ const cursorBumpCooldownMs = 900;
 const cursorDragDistance = 58;
 const cursorDragStartDistance = 10;
 const cursorDragSendInterval = 180;
+const cursorDragScrollEdge = 86;
+const cursorDragScrollMax = 30;
 const cursorBumpEffects = ["hearts", "black-cat", "orange-cat"];
 const cursorEffectAssets = {
   hearts: "/cursor-effects/pixel-heart.png",
@@ -269,6 +278,7 @@ const state = {
   cursorLastSentAt: 0,
   lastCursorBumpAt: 0,
   cursorDrag: null,
+  cursorAutoScrollFrame: null,
   pendingLocalCursorPoint: null,
   localCursorFrame: null,
   localCursorKey: "",
@@ -736,6 +746,72 @@ function triggerCursorBumpAtPoint(point, peer = cursorPeerAtPoint(point)) {
   return true;
 }
 
+function boardPointFromClient(clientX, clientY) {
+  const rect = state.boardRect || board.getBoundingClientRect();
+  state.boardRect = rect;
+  return {
+    x: (clientX - rect.left) / state.viewport.zoom,
+    y: (clientY - rect.top) / state.viewport.zoom,
+  };
+}
+
+function cursorDragScrollDelta(clientX, clientY) {
+  const rect = boardViewport.getBoundingClientRect();
+  const edge = cursorDragScrollEdge;
+  const speed = cursorDragScrollMax;
+  let dx = 0;
+  let dy = 0;
+
+  if (clientX < rect.left + edge) {
+    dx = -Math.ceil(((rect.left + edge - clientX) / edge) * speed);
+  } else if (clientX > rect.right - edge) {
+    dx = Math.ceil(((clientX - (rect.right - edge)) / edge) * speed);
+  }
+
+  if (clientY < rect.top + edge) {
+    dy = -Math.ceil(((rect.top + edge - clientY) / edge) * speed);
+  } else if (clientY > rect.bottom - edge) {
+    dy = Math.ceil(((clientY - (rect.bottom - edge)) / edge) * speed);
+  }
+
+  const maxLeft = boardViewport.scrollWidth - boardViewport.clientWidth;
+  const maxTop = boardViewport.scrollHeight - boardViewport.clientHeight;
+  if ((dx < 0 && boardViewport.scrollLeft <= 0) || (dx > 0 && boardViewport.scrollLeft >= maxLeft)) {
+    dx = 0;
+  }
+  if ((dy < 0 && boardViewport.scrollTop <= 0) || (dy > 0 && boardViewport.scrollTop >= maxTop)) {
+    dy = 0;
+  }
+
+  return { dx, dy };
+}
+
+function stopCursorDragAutoScroll() {
+  if (state.cursorAutoScrollFrame) {
+    window.cancelAnimationFrame(state.cursorAutoScrollFrame);
+    state.cursorAutoScrollFrame = null;
+  }
+}
+
+function startCursorDragAutoScroll() {
+  if (state.cursorAutoScrollFrame) return;
+  state.cursorAutoScrollFrame = window.requestAnimationFrame(() => {
+    state.cursorAutoScrollFrame = null;
+    const drag = state.cursorDrag;
+    if (!drag?.dragging) return;
+    const { dx, dy } = cursorDragScrollDelta(drag.lastClientX, drag.lastClientY);
+    if (!dx && !dy) return;
+
+    boardViewport.scrollLeft += dx;
+    boardViewport.scrollTop += dy;
+    state.boardRect = null;
+    applyCursorPeerDragPoint(
+      boardPointFromClient(drag.lastClientX, drag.lastClientY),
+    );
+    startCursorDragAutoScroll();
+  });
+}
+
 function beginCursorPeerDrag(event) {
   if (!state.exhibit || event.button !== 0 || event.target !== board) {
     return false;
@@ -750,6 +826,8 @@ function beginCursorPeerDrag(event) {
     start: point,
     dragging: false,
     lastSentAt: 0,
+    lastClientX: event.clientX,
+    lastClientY: event.clientY,
   };
   board.classList.add("cursor-peer-dragging");
   board.setPointerCapture(event.pointerId);
@@ -783,10 +861,30 @@ function sendCursorDrag(point, peer, final = false) {
   }).catch(() => {});
 }
 
+function applyCursorPeerDragPoint(point, final = false) {
+  const drag = state.cursorDrag;
+  if (!drag) return;
+  const basePeer = state.cursorPeers.get(drag.peerId) || drag.peer;
+  const peer = {
+    ...basePeer,
+    id: drag.peerId,
+    x: point.x,
+    y: point.y,
+    exhibitId: state.exhibit.id,
+    updatedAt: Date.now(),
+  };
+  delete peer.bumpEffect;
+  state.cursorPeers.set(drag.peerId, peer);
+  renderRemoteCursor(drag.peerId, peer);
+  sendCursorDrag(point, peer, final);
+}
+
 function updateCursorPeerDrag(event, final = false) {
   const drag = state.cursorDrag;
   if (!drag || drag.pointerId !== event.pointerId) return false;
   const point = boardPoint(event);
+  drag.lastClientX = event.clientX;
+  drag.lastClientY = event.clientY;
   const moved = Math.hypot(point.x - drag.start.x, point.y - drag.start.y);
   if (!drag.dragging && moved < cursorDragStartDistance && !final) {
     event.preventDefault();
@@ -797,19 +895,8 @@ function updateCursorPeerDrag(event, final = false) {
     drag.dragging = true;
   }
   if (drag.dragging) {
-    const basePeer = state.cursorPeers.get(drag.peerId) || drag.peer;
-    const peer = {
-      ...basePeer,
-      id: drag.peerId,
-      x: point.x,
-      y: point.y,
-      exhibitId: state.exhibit.id,
-      updatedAt: Date.now(),
-    };
-    delete peer.bumpEffect;
-    state.cursorPeers.set(drag.peerId, peer);
-    renderRemoteCursor(drag.peerId, peer);
-    sendCursorDrag(point, peer, final);
+    applyCursorPeerDragPoint(point, final);
+    if (!final) startCursorDragAutoScroll();
   }
   event.preventDefault();
   event.stopPropagation();
@@ -831,6 +918,7 @@ function endCursorPeerDrag(event) {
 }
 
 function clearCursorPeerDrag(pointerId) {
+  stopCursorDragAutoScroll();
   try {
     if (board.hasPointerCapture?.(pointerId)) {
       board.releasePointerCapture(pointerId);
@@ -1029,8 +1117,9 @@ function resizePictureUpload(file) {
 }
 
 function pictureFrameConfig(data = {}) {
+  const frameId = legacyPictureFrames[data.frame] || data.frame;
   return (
-    pictureFrames.find((frame) => frame.id === data.frame) || pictureFrames[1]
+    pictureFrames.find((frame) => frame.id === frameId) || pictureFrames[0]
   );
 }
 
@@ -1988,12 +2077,7 @@ function setMusicPresentation(presentation) {
 }
 
 function boardPoint(event) {
-  const rect = state.boardRect || board.getBoundingClientRect();
-  state.boardRect = rect;
-  return {
-    x: (event.clientX - rect.left) / state.viewport.zoom,
-    y: (event.clientY - rect.top) / state.viewport.zoom,
-  };
+  return boardPointFromClient(event.clientX, event.clientY);
 }
 
 function normalizeRect(start, current) {
@@ -3852,7 +3936,7 @@ async function createPictureWidgetFromFile(file) {
   await createWidget("picture", pictureRectForUpload(picture), {
     title: picture.title,
     url: picture.url,
-    frame: "classic",
+    frame: "fourcut",
     naturalWidth: picture.width,
     naturalHeight: picture.height,
   });

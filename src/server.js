@@ -518,6 +518,19 @@ function cleanBackgroundTheme(value) {
   return ['default', 'goth', 'starry', 'office', 'dream'].includes(theme) ? theme : 'default';
 }
 
+function cleanPictureFrame(value) {
+  const frame = String(value || 'fourcut');
+  const legacyFrames = {
+    clean: 'fourcut',
+    classic: 'fourcut',
+    polaroid: 'stamp',
+    film: 'filmbooth',
+    heart: 'stickerpop'
+  };
+  const frameId = legacyFrames[frame] || frame;
+  return ['fourcut', 'stamp', 'ticket', 'filmbooth', 'stickerpop'].includes(frameId) ? frameId : 'fourcut';
+}
+
 function clampNumber(value, fallback, min, max) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -637,7 +650,7 @@ function sanitizeWidgetData(type, data) {
       ...style,
       title: cleanText(safe.title, 160),
       url: cleanMediaUrl(safe.url, MAX_MEDIA_DATA_URL_BYTES),
-      frame: /^[a-z0-9_-]{1,40}$/.test(String(safe.frame || '')) ? String(safe.frame) : 'classic',
+      frame: cleanPictureFrame(safe.frame),
       naturalWidth: clampNumber(safe.naturalWidth, 0, 0, 10000),
       naturalHeight: clampNumber(safe.naturalHeight, 0, 0, 10000)
     };
@@ -2087,6 +2100,7 @@ module.exports = {
   _private: {
     assertRateLimit,
     cleanCursorImage,
+    cleanPictureFrame,
     configuredSecret,
     compactLogField,
     hasOperatorDiagnosticsAccess,

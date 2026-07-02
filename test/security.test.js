@@ -13,6 +13,13 @@ test('cursor image validation rejects markup-bearing local cursor paths', () => 
   assert.equal(serverPrivate.cleanCursorImage('/cursors/../preset-1.png'), '');
 });
 
+test('picture frame validation maps legacy values to approved booth frames', () => {
+  assert.equal(serverPrivate.cleanPictureFrame('ticket'), 'ticket');
+  assert.equal(serverPrivate.cleanPictureFrame('polaroid'), 'stamp');
+  assert.equal(serverPrivate.cleanPictureFrame('classic'), 'fourcut');
+  assert.equal(serverPrivate.cleanPictureFrame('"><script>'), 'fourcut');
+});
+
 test('signup verification tokens are bound to the verified email', () => {
   const token = serverPrivate.makeSignupVerificationToken('User@Example.com', 'code-row-1');
   assert.equal(serverPrivate.readSignupVerificationToken(token, 'user@example.com').codeId, 'code-row-1');
