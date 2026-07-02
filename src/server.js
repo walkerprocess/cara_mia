@@ -13,9 +13,11 @@ const {
   normalizeWidget,
   publicUser,
   query,
+  recordUserAccessLog,
   scheduleDatabaseExport
 } = require('./db');
 const {
+  attachAuthUser,
   clearSessionCookie,
   hashPassword,
   requireAuth,
@@ -25,6 +27,7 @@ const {
 const { emailConfigStatus, sendAuthCode, verifyEmailTransport } = require('./mailer');
 
 const app = express();
+app.set('trust proxy', 1);
 const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, '..', 'public');
 const exhibitStreams = new Map();
@@ -32,10 +35,39 @@ const startedAt = new Date();
 const revision = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null;
 const { randomUUID } = crypto;
 const AUTH_CODE_MINUTES = 15;
-const authCodeSecret = process.env.AUTH_CODE_SECRET || process.env.SESSION_SECRET || 'cara-mia-local-auth-code-secret';
+const AUTH_CODE_RESEND_COOLDOWN_MS = 60 * 1000;
+const RATE_LIMIT_MAX_BUCKETS = 10000;
+const MAX_WIDGET_DATA_BYTES = 1_500_000;
+const MAX_TEXT_BYTES = 20000;
+const MAX_MEDIA_DATA_URL_BYTES = 800000;
+const MAX_CANVAS_DATA_URL_BYTES = 1_500_000;
+const MAX_EXHIBIT_WIDGETS = 250;
+const MAX_EXHIBIT_WIDGET_DATA_BYTES = 12_000_000;
+const MAX_EVENT_STREAMS_PER_EXHIBIT = 50;
+const MAX_EVENT_STREAMS_PER_USER_EXHIBIT = 4;
+const PROVIDER_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_ACCESS_LOG_FIELD = 500;
+const LOCAL_AUTH_CODE_SECRET = 'cara-mia-local-auth-code-secret';
+const rateLimitBuckets = new Map();
+const providerSearchCache = new Map();
+
+function configuredSecret(names, fallback) {
+  const value = names.map((name) => String(process.env[name] || '')).find(Boolean);
+  if (process.env.NODE_ENV === 'production' && (!value || value.length < 32)) {
+    throw new Error(`${names.join(' or ')} must be set to at least 32 characters in production.`);
+  }
+  return value || fallback;
+}
+
+const authCodeSecret = configuredSecret(['AUTH_CODE_SECRET', 'SESSION_SECRET'], LOCAL_AUTH_CODE_SECRET);
 
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
+app.use((req, res, next) => {
+  if (!shouldLogAccess(req)) return next();
+  return attachAuthUser(req, res, next);
+});
+app.use(accessLogMiddleware);
 app.use(express.static(publicDir, {
   etag: true,
   setHeaders: (res, filePath) => {
@@ -67,6 +99,155 @@ function validPassword(password) {
 
 function validUserId(userId) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(userId);
+}
+
+function clientIp(req) {
+  return String(req.ip || req.socket?.remoteAddress || 'unknown');
+}
+
+function compactLogField(value, limit = MAX_ACCESS_LOG_FIELD) {
+  const text = String(value || '').replace(/[\r\n\t]+/g, ' ').trim();
+  return text.length > limit ? text.slice(0, limit) : text;
+}
+
+function isStaticAssetPath(pathname) {
+  return /\.(?:avif|css|gif|ico|jpe?g|js|map|mp3|ogg|png|svg|wav|webm|webp|woff2?)$/i.test(pathname);
+}
+
+function shouldLogAccess(req) {
+  const pathname = String(req.path || '/');
+  if (req.method === 'OPTIONS') return false;
+  if (pathname === '/health') return false;
+  if (pathname.endsWith('/presence')) return false;
+  if (pathname.endsWith('/cursor-bump')) return false;
+  if (isStaticAssetPath(pathname)) return false;
+  return true;
+}
+
+function accessLogEntry(req, res, startedAt, completed) {
+  const durationMs = Math.max(0, Math.round(Number(process.hrtime.bigint() - startedAt) / 1_000_000));
+  const user = req.publicUser || (req.user ? publicUser(req.user) : null);
+  return {
+    userId: user?.id || req.user?.id || null,
+    accountId: user?.accountId || req.user?.account_id || null,
+    method: compactLogField(req.method, 16),
+    path: compactLogField(req.path || '/', 300),
+    statusCode: Number(res.statusCode || 0),
+    durationMs,
+    completed,
+    ipAddress: compactLogField(clientIp(req), 100),
+    userAgent: compactLogField(req.get('user-agent')),
+    referrer: compactLogField(req.get('referer') || req.get('referrer'))
+  };
+}
+
+function accessLogMiddleware(req, res, next) {
+  if (!shouldLogAccess(req)) return next();
+
+  const startedAt = process.hrtime.bigint();
+  let recorded = false;
+  const record = (completed) => {
+    if (recorded) return;
+    recorded = true;
+    setImmediate(async () => {
+      try {
+        await recordUserAccessLog(accessLogEntry(req, res, startedAt, completed));
+      } catch (error) {
+        console.error('Access log write failed:', error);
+      }
+    });
+  };
+
+  res.on('finish', () => record(true));
+  res.on('close', () => record(Boolean(res.writableEnded)));
+  next();
+}
+
+function normalizedRateKey(value) {
+  return String(value || 'unknown').trim().toLowerCase().slice(0, 180) || 'unknown';
+}
+
+function pruneRateLimitBuckets(now = Date.now()) {
+  if (rateLimitBuckets.size <= RATE_LIMIT_MAX_BUCKETS) return;
+  for (const [key, bucket] of rateLimitBuckets) {
+    if (bucket.resetAt <= now) {
+      rateLimitBuckets.delete(key);
+    }
+    if (rateLimitBuckets.size <= RATE_LIMIT_MAX_BUCKETS) return;
+  }
+}
+
+function takeRateLimit(scope, key, { limit, windowMs }, now = Date.now()) {
+  pruneRateLimitBuckets(now);
+  const bucketKey = `${scope}:${normalizedRateKey(key)}`;
+  let bucket = rateLimitBuckets.get(bucketKey);
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = { count: 0, resetAt: now + windowMs };
+    rateLimitBuckets.set(bucketKey, bucket);
+  }
+  bucket.count += 1;
+  return {
+    ok: bucket.count <= limit,
+    remaining: Math.max(0, limit - bucket.count),
+    retryAfterSeconds: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))
+  };
+}
+
+function assertRateLimit(req, checks) {
+  const denied = checks
+    .map((check) => takeRateLimit(check.scope, check.key, check))
+    .filter((result) => !result.ok)
+    .sort((left, right) => right.retryAfterSeconds - left.retryAfterSeconds)[0];
+  if (!denied) return;
+  const error = new Error('Too many requests. Please wait a moment and try again.');
+  error.statusCode = 429;
+  error.retryAfterSeconds = denied.retryAfterSeconds;
+  throw error;
+}
+
+function assertAuthAttemptLimit(req, identifier, purpose) {
+  const base = purpose || 'auth';
+  assertRateLimit(req, [
+    { scope: `${base}:ip`, key: clientIp(req), limit: 30, windowMs: 15 * 60 * 1000 },
+    { scope: `${base}:id`, key: identifier, limit: 10, windowMs: 15 * 60 * 1000 }
+  ]);
+}
+
+function assertCodeIssueLimit(req, address, purpose) {
+  const base = `code:${purpose}`;
+  assertRateLimit(req, [
+    { scope: `${base}:ip`, key: clientIp(req), limit: 10, windowMs: 60 * 60 * 1000 },
+    { scope: `${base}:address`, key: address, limit: 4, windowMs: 60 * 60 * 1000 }
+  ]);
+}
+
+function assertProviderSearchLimit(req, kind, queryKey) {
+  assertRateLimit(req, [
+    { scope: `search:${kind}:ip`, key: clientIp(req), limit: 120, windowMs: 60 * 1000 },
+    { scope: `search:${kind}:user`, key: req.user?.id || clientIp(req), limit: 60, windowMs: 60 * 1000 },
+    { scope: `search:${kind}:query`, key: queryKey, limit: 240, windowMs: 60 * 1000 }
+  ]);
+}
+
+function cacheGet(cache, key) {
+  const cached = cache.get(key);
+  if (!cached || cached.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return cached.value;
+}
+
+function cacheSet(cache, key, value, ttlMs = PROVIDER_CACHE_TTL_MS) {
+  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  if (cache.size > 500) {
+    for (const [cacheKey, cached] of cache) {
+      if (cached.expiresAt <= Date.now() || cache.size > 500) {
+        cache.delete(cacheKey);
+      }
+      if (cache.size <= 500) break;
+    }
+  }
 }
 
 async function findLoginUser(identifier) {
@@ -150,9 +331,83 @@ function readResetToken(token) {
   }
 }
 
+function makeSignupVerificationToken(email, codeId) {
+  const payload = Buffer.from(JSON.stringify({
+    email: normalizeEmail(email),
+    codeId,
+    purpose: 'signup_verified',
+    exp: Date.now() + AUTH_CODE_MINUTES * 60 * 1000
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', authCodeSecret).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function readSignupVerificationToken(token, email) {
+  if (!token || !String(token).includes('.')) return null;
+  const [payload, signature] = String(token).split('.');
+  const expected = crypto.createHmac('sha256', authCodeSecret).update(payload).digest('base64url');
+  if (!timingSafeEqualText(signature, expected)) return null;
+
+  try {
+    const body = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (
+      body.purpose !== 'signup_verified'
+      || body.email !== normalizeEmail(email)
+      || !body.codeId
+      || Date.now() > Number(body.exp)
+    ) {
+      return null;
+    }
+    return body;
+  } catch {
+    return null;
+  }
+}
+
+function rowCreatedAtMs(row) {
+  const parsed = Date.parse(row?.created_at);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function recentIssueError() {
+  const error = new Error('A code was sent recently. Please wait a moment before requesting another one.');
+  error.statusCode = 429;
+  error.retryAfterSeconds = Math.ceil(AUTH_CODE_RESEND_COOLDOWN_MS / 1000);
+  return error;
+}
+
+async function assertCanIssueUserAuthCode(user, purpose) {
+  const recent = await get(
+    `SELECT created_at
+     FROM auth_codes
+     WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [user.id, purpose]
+  );
+  if (recent && Date.now() - rowCreatedAtMs(recent) < AUTH_CODE_RESEND_COOLDOWN_MS) {
+    throw recentIssueError();
+  }
+}
+
+async function assertCanIssueEmailAuthCode(email, purpose) {
+  const recent = await get(
+    `SELECT created_at
+     FROM email_auth_codes
+     WHERE email = ? AND purpose = ? AND consumed_at IS NULL
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [normalizeEmail(email), purpose]
+  );
+  if (recent && Date.now() - rowCreatedAtMs(recent) < AUTH_CODE_RESEND_COOLDOWN_MS) {
+    throw recentIssueError();
+  }
+}
+
 async function issueAuthCode(user, purpose) {
   const code = generateAuthCode();
   const expiresAt = new Date(Date.now() + AUTH_CODE_MINUTES * 60 * 1000).toISOString();
+  await assertCanIssueUserAuthCode(user, purpose);
   await query(
     'UPDATE auth_codes SET consumed_at = CURRENT_TIMESTAMP WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL',
     [user.id, purpose]
@@ -174,6 +429,7 @@ async function issueEmailAuthCode(email, purpose = 'signup') {
   const normalizedEmail = normalizeEmail(email);
   const code = generateAuthCode();
   const expiresAt = new Date(Date.now() + AUTH_CODE_MINUTES * 60 * 1000).toISOString();
+  await assertCanIssueEmailAuthCode(normalizedEmail, purpose);
   await query(
     'UPDATE email_auth_codes SET consumed_at = CURRENT_TIMESTAMP WHERE email = ? AND purpose = ? AND consumed_at IS NULL',
     [normalizedEmail, purpose]
@@ -230,18 +486,21 @@ async function verifyEmailAuthCode(email, purpose, code) {
   if (!timingSafeEqualText(row.code_hash, expected)) return false;
 
   await query('UPDATE email_auth_codes SET verified_at = CURRENT_TIMESTAMP WHERE id = ?', [row.id]);
-  return true;
+  return makeSignupVerificationToken(normalizedEmail, row.id);
 }
 
-async function consumeVerifiedEmailCode(email, purpose) {
+async function consumeVerifiedEmailCode(email, purpose, verificationToken) {
   const normalizedEmail = normalizeEmail(email);
+  const tokenBody = readSignupVerificationToken(verificationToken, normalizedEmail);
+  if (!tokenBody) return false;
+
   const row = await get(
     `SELECT *
      FROM email_auth_codes
-     WHERE email = ? AND purpose = ? AND verified_at IS NOT NULL AND consumed_at IS NULL
+     WHERE id = ? AND email = ? AND purpose = ? AND verified_at IS NOT NULL AND consumed_at IS NULL
      ORDER BY verified_at DESC, created_at DESC, id DESC
      LIMIT 1`,
-    [normalizedEmail, purpose]
+    [tokenBody.codeId, normalizedEmail, purpose]
   );
   if (!row || Date.parse(row.expires_at) < Date.now()) return false;
   await query('UPDATE email_auth_codes SET consumed_at = CURRENT_TIMESTAMP WHERE id = ?', [row.id]);
@@ -264,15 +523,146 @@ function clampNumber(value, fallback, min, max) {
   return Math.min(max, Math.max(min, parsed));
 }
 
-function serializeData(data) {
+function jsonByteLength(value) {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+function cleanText(value, maxLength) {
+  return String(value || '').replace(/\r\n/g, '\n').slice(0, maxLength);
+}
+
+function cleanBoolean(value) {
+  return Boolean(value);
+}
+
+function cleanColor(value, fallback = '') {
+  const color = String(value || '');
+  return /^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|transparent)$/.test(color)
+    ? color.slice(0, 80)
+    : fallback;
+}
+
+function cleanFontFamily(value) {
+  const font = String(value || '').trim();
+  return /^[a-zA-Z0-9\s"',.-]{1,80}$/.test(font) ? font : '';
+}
+
+function cleanMediaUrl(value, maxBytes = MAX_MEDIA_DATA_URL_BYTES) {
+  const url = String(value || '').trim();
+  if (!url || url.length > maxBytes) return '';
+  if (/^data:image\/(?:png|jpe?g|webp|gif|svg\+xml)(?:;charset=utf-8)?[;,]/i.test(url)) {
+    return Buffer.byteLength(url, 'utf8') <= maxBytes ? url : '';
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' && url.length <= 2048) return url;
+    if (parsed.protocol === 'http:' && parsed.hostname === 'localhost' && url.length <= 2048) return url;
+  } catch {
+    if (/^\/[a-zA-Z0-9/_.,-]{1,240}$/.test(url)) return url;
+  }
+  return '';
+}
+
+function cleanStyleData(data) {
+  const style = {};
+  if (data.background !== undefined) style.background = cleanColor(data.background, '');
+  if (data.color !== undefined) style.color = cleanColor(data.color, '#050406');
+  if (data.borderColor !== undefined) style.borderColor = cleanColor(data.borderColor, 'rgba(255,255,255,0.16)');
+  if (data.borderWidth !== undefined) style.borderWidth = clampNumber(data.borderWidth, 1, 0, 12);
+  if (data.shape !== undefined) style.shape = /^[a-z0-9_-]{1,40}$/.test(String(data.shape)) ? String(data.shape) : 'rounded';
+  if (data.fontFamily !== undefined) style.fontFamily = cleanFontFamily(data.fontFamily);
+  if (data.fontSize !== undefined) style.fontSize = clampNumber(data.fontSize, 18, 10, 72);
+  if (data.bold !== undefined) style.bold = cleanBoolean(data.bold);
+  if (data.italic !== undefined) style.italic = cleanBoolean(data.italic);
+  return style;
+}
+
+function sanitizeWidgetData(type, data) {
   const safe = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
-  const json = JSON.stringify(safe);
-  if (json.length > 8_000_000) {
+  if (jsonByteLength(safe) > MAX_WIDGET_DATA_BYTES) {
     const error = new Error('This widget is too large to save.');
     error.statusCode = 413;
     throw error;
   }
-  return json;
+  const style = cleanStyleData(safe);
+
+  if (type === 'canvas') {
+    return {
+      ...style,
+      image: cleanMediaUrl(safe.image, MAX_CANVAS_DATA_URL_BYTES)
+    };
+  }
+  if (type === 'wordbox') {
+    return {
+      ...style,
+      text: cleanText(safe.text, 10000)
+    };
+  }
+  if (type === 'question') {
+    const questionType = /^[a-z0-9_-]{1,40}$/.test(String(safe.questionType || '')) ? String(safe.questionType) : 'romantic';
+    return {
+      ...style,
+      questionType,
+      questionIndex: clampNumber(safe.questionIndex, 0, 0, 1000),
+      commentText: cleanText(safe.commentText, 10000),
+      questionColor: cleanColor(safe.questionColor, '#050406'),
+      questionFont: cleanFontFamily(safe.questionFont),
+      questionFontSize: clampNumber(safe.questionFontSize, 21, 10, 72),
+      questionBold: cleanBoolean(safe.questionBold),
+      questionItalic: cleanBoolean(safe.questionItalic),
+      answerColor: cleanColor(safe.answerColor, '#24103d'),
+      answerFont: cleanFontFamily(safe.answerFont),
+      answerFontSize: clampNumber(safe.answerFontSize, 17, 10, 72),
+      answerBold: cleanBoolean(safe.answerBold),
+      answerItalic: cleanBoolean(safe.answerItalic)
+    };
+  }
+  if (type === 'music') {
+    return {
+      ...style,
+      id: cleanText(safe.id, 80),
+      title: cleanText(safe.title, 160),
+      artist: cleanText(safe.artist, 160),
+      album: cleanText(safe.album, 160),
+      artwork: cleanMediaUrl(safe.artwork, 200000),
+      previewUrl: cleanMediaUrl(safe.previewUrl, 2048),
+      presentation: safe.presentation === 'player' ? 'player' : 'cover',
+      playerColor: cleanColor(safe.playerColor, '#f6e8f1'),
+      playerAlpha: clampNumber(safe.playerAlpha, 0.82, 0.15, 1)
+    };
+  }
+  if (type === 'picture') {
+    return {
+      ...style,
+      title: cleanText(safe.title, 160),
+      url: cleanMediaUrl(safe.url, MAX_MEDIA_DATA_URL_BYTES),
+      frame: /^[a-z0-9_-]{1,40}$/.test(String(safe.frame || '')) ? String(safe.frame) : 'classic',
+      naturalWidth: clampNumber(safe.naturalWidth, 0, 0, 10000),
+      naturalHeight: clampNumber(safe.naturalHeight, 0, 0, 10000)
+    };
+  }
+  if (type === 'sticker' || type === 'gif') {
+    return {
+      ...style,
+      id: cleanText(safe.id, 120),
+      title: cleanText(safe.title, 160),
+      url: cleanMediaUrl(safe.url, MAX_MEDIA_DATA_URL_BYTES),
+      previewUrl: cleanMediaUrl(safe.previewUrl, MAX_MEDIA_DATA_URL_BYTES),
+      source: cleanText(safe.source, 80),
+      assetType: ['sticker', 'gif'].includes(safe.assetType) ? safe.assetType : type
+    };
+  }
+  return style;
+}
+
+function serializeData(data, type) {
+  const sanitized = sanitizeWidgetData(type, data);
+  if (jsonByteLength(sanitized) > MAX_WIDGET_DATA_BYTES || jsonByteLength(sanitized) > MAX_TEXT_BYTES && ['wordbox', 'question', 'music'].includes(type)) {
+    const error = new Error('This widget is too large to save.');
+    error.statusCode = 413;
+    throw error;
+  }
+  return JSON.stringify(sanitized);
 }
 
 function cleanClientId(value) {
@@ -287,11 +677,16 @@ function cleanCursorColor(value) {
 function cleanCursorImage(value) {
   const image = String(value || '');
   if (!image) return '';
-  if (image.startsWith('/cursors/')) return image.slice(0, 160);
+  if (/^\/cursors\/[a-z0-9_-]+\.(?:png|webp|gif)$/i.test(image)) return image;
   if (/^data:image\/(png|jpeg|jpg|webp);base64,[a-zA-Z0-9+/=]+$/.test(image) && image.length < 180000) {
     return image;
   }
   return '';
+}
+
+function cleanCursorBumpEffect(value) {
+  const effect = String(value || '');
+  return ['hearts', 'black-cat', 'orange-cat'].includes(effect) ? effect : 'hearts';
 }
 
 function writeLiveEvent(res, event, payload = {}) {
@@ -304,6 +699,30 @@ function addExhibitStream(exhibitId, client) {
     exhibitStreams.set(exhibitId, new Set());
   }
   exhibitStreams.get(exhibitId).add(client);
+}
+
+function exhibitStreamCount(exhibitId, predicate = null) {
+  const clients = exhibitStreams.get(exhibitId);
+  if (!clients) return 0;
+  if (!predicate) return clients.size;
+  let count = 0;
+  for (const client of clients) {
+    if (predicate(client)) count += 1;
+  }
+  return count;
+}
+
+function assertCanOpenExhibitStream(exhibitId, userId) {
+  if (exhibitStreamCount(exhibitId) >= MAX_EVENT_STREAMS_PER_EXHIBIT) {
+    const error = new Error('This exhibit has too many live connections right now.');
+    error.statusCode = 429;
+    throw error;
+  }
+  if (exhibitStreamCount(exhibitId, (client) => client.user?.id === userId) >= MAX_EVENT_STREAMS_PER_USER_EXHIBIT) {
+    const error = new Error('You have too many live connections open for this exhibit.');
+    error.statusCode = 429;
+    throw error;
+  }
 }
 
 function removeExhibitStream(exhibitId, client) {
@@ -321,6 +740,39 @@ function broadcastExhibitEvent(exhibitId, event, payload = {}) {
 
   for (const client of clients) {
     writeLiveEvent(client.res, event, payload);
+  }
+}
+
+async function widgetQuotaStats(exhibitId, excludingWidgetId = null) {
+  const lengthExpression = isPostgres ? 'LENGTH(data::text)' : 'LENGTH(data)';
+  const params = [exhibitId];
+  let where = 'WHERE exhibit_id = ?';
+  if (excludingWidgetId) {
+    where += ' AND id <> ?';
+    params.push(excludingWidgetId);
+  }
+  return get(
+    `SELECT COUNT(*) AS widget_count, COALESCE(SUM(${lengthExpression}), 0) AS data_bytes
+     FROM widgets
+     ${where}`,
+    params
+  );
+}
+
+async function assertWidgetQuota(exhibitId, nextDataJson, excludingWidgetId = null) {
+  const stats = await widgetQuotaStats(exhibitId, excludingWidgetId);
+  const widgetCount = Number(stats?.widget_count || stats?.count || 0);
+  const dataBytes = Number(stats?.data_bytes || 0);
+  const nextBytes = Buffer.byteLength(nextDataJson, 'utf8');
+  if (!excludingWidgetId && widgetCount >= MAX_EXHIBIT_WIDGETS) {
+    const error = new Error('This exhibit has reached the widget limit.');
+    error.statusCode = 413;
+    throw error;
+  }
+  if (dataBytes + nextBytes > MAX_EXHIBIT_WIDGET_DATA_BYTES) {
+    const error = new Error('This exhibit has reached the saved widget data limit.');
+    error.statusCode = 413;
+    throw error;
   }
 }
 
@@ -546,8 +998,8 @@ async function giphyAssetResults(type, term) {
       type,
       assetType,
       title: item.title || `${assetType} result`,
-      previewUrl: item.images?.fixed_width_small?.url || item.images?.downsized?.url || item.images?.original?.url,
-      url: item.images?.original?.url || item.images?.downsized?.url,
+      previewUrl: cleanMediaUrl(item.images?.fixed_width_small?.url || item.images?.downsized?.url || item.images?.original?.url, 2048),
+      url: cleanMediaUrl(item.images?.original?.url || item.images?.downsized?.url, 2048),
       source: 'GIPHY'
     })).filter((item) => item.url);
   });
@@ -641,6 +1093,21 @@ async function listExhibits(userId) {
   }));
 }
 
+function hasOperatorDiagnosticsAccess(req) {
+  if (process.env.NODE_ENV !== 'production') return true;
+  const expected = String(process.env.EMAIL_STATUS_TOKEN || '');
+  const supplied = String(req.get('x-cara-mia-ops-token') || req.query.token || '');
+  return Boolean(expected) && timingSafeEqualText(supplied, expected);
+}
+
+function publicEmailStatus(status) {
+  return {
+    configured: Boolean(status.configured),
+    mode: status.mode,
+    provider: status.provider
+  };
+}
+
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
@@ -654,6 +1121,13 @@ app.get('/health', (_req, res) => {
 
 app.get('/api/email/status', async (req, res) => {
   const status = emailConfigStatus();
+  const detailed = hasOperatorDiagnosticsAccess(req);
+  if (!detailed) {
+    if (String(req.query.check || '') === 'true') {
+      return res.status(403).json({ error: 'Email diagnostics require operator access.' });
+    }
+    return res.json(publicEmailStatus(status));
+  }
   if (String(req.query.check || '') === 'true') {
     status.connection = await verifyEmailTransport();
   }
@@ -666,10 +1140,11 @@ app.post('/api/signup/code', async (req, res, next) => {
     if (!validEmail(email)) {
       return res.status(400).json({ error: 'Enter a valid email address.' });
     }
+    assertCodeIssueLimit(req, email, 'signup');
 
     const existingEmail = await get('SELECT * FROM users WHERE email = ?', [email]);
     if (existingEmail && Boolean(existingEmail.email_verified)) {
-      return res.status(409).json({ error: 'That email already has an account.' });
+      return res.json({ ok: true, email });
     }
 
     await issueEmailAuthCode(email, 'signup');
@@ -686,10 +1161,12 @@ app.post('/api/signup/verify-email', async (req, res, next) => {
     if (!validEmail(email)) {
       return res.status(400).json({ error: 'Enter a valid email address.' });
     }
-    if (!(await verifyEmailAuthCode(email, 'signup', code))) {
+    assertAuthAttemptLimit(req, email, 'signup-verify');
+    const verificationToken = await verifyEmailAuthCode(email, 'signup', code);
+    if (!verificationToken) {
       return res.status(400).json({ error: 'That verification code did not match or has expired.' });
     }
-    res.json({ ok: true, email, verified: true });
+    res.json({ ok: true, email, verified: true, verificationToken });
   } catch (error) {
     next(error);
   }
@@ -701,6 +1178,7 @@ app.post('/api/signup', async (req, res, next) => {
     const accountId = normalizeAccountId(req.body.accountId);
     const password = String(req.body.password || '');
     const passwordConfirm = String(req.body.passwordConfirm || '');
+    const verificationToken = String(req.body.verificationToken || '');
 
     if (!validEmail(email)) {
       return res.status(400).json({ error: 'Enter a valid email address.' });
@@ -724,7 +1202,7 @@ app.post('/api/signup', async (req, res, next) => {
     if (existingAccount && existingAccount.id !== existingEmail?.id) {
       return res.status(409).json({ error: 'That account id is already taken.' });
     }
-    if (!(await consumeVerifiedEmailCode(email, 'signup'))) {
+    if (!(await consumeVerifiedEmailCode(email, 'signup', verificationToken))) {
       return res.status(400).json({ error: 'Verify your email before creating the account.' });
     }
 
@@ -732,7 +1210,7 @@ app.post('/api/signup', async (req, res, next) => {
     const passwordHash = await hashPassword(password);
     if (existingEmail) {
       await query(
-        'UPDATE users SET account_id = ?, password_hash = ?, email_verified = ? WHERE id = ?',
+        'UPDATE users SET account_id = ?, password_hash = ?, email_verified = ?, password_changed_at = CURRENT_TIMESTAMP WHERE id = ?',
         [accountId, passwordHash, isPostgres ? true : 1, userId]
       );
     } else {
@@ -751,6 +1229,8 @@ app.post('/api/signup', async (req, res, next) => {
     await ensureDefaultExhibit(userId);
     scheduleDatabaseExport();
     setSessionCookie(res, userId);
+    req.user = savedUser;
+    req.publicUser = publicUser(savedUser);
 
     res.status(201).json({
       ok: true,
@@ -767,10 +1247,11 @@ app.post('/api/signup/resend', async (req, res, next) => {
     if (!validEmail(email)) {
       return res.status(400).json({ error: 'Enter the email from signup.' });
     }
+    assertCodeIssueLimit(req, email, 'signup');
 
     const existingEmail = await get('SELECT * FROM users WHERE email = ?', [email]);
     if (existingEmail && Boolean(existingEmail.email_verified)) {
-      return res.status(409).json({ error: 'That email already has an account.' });
+      return res.json({ ok: true });
     }
     await issueEmailAuthCode(email, 'signup');
     res.json({ ok: true });
@@ -784,6 +1265,7 @@ app.post('/api/signup/verify', async (req, res, next) => {
     const email = normalizeEmail(req.body.email);
     const accountId = normalizeAccountId(req.body.accountId);
     const code = normalizeAuthCode(req.body.code);
+    assertAuthAttemptLimit(req, `${email}:${accountId}`, 'signup-verify-legacy');
 
     const user = await get('SELECT * FROM users WHERE email = ? AND LOWER(TRIM(account_id)) = ?', [email, accountId]);
     if (!user || Boolean(user.email_verified) || !(await verifyAuthCode(user, 'signup', code))) {
@@ -805,6 +1287,7 @@ app.post('/api/login', async (req, res, next) => {
   try {
     const identifier = req.body.accountId || req.body.identifier;
     const password = String(req.body.password || '');
+    assertAuthAttemptLimit(req, identifier, 'login');
     const user = await findLoginUser(identifier);
 
     if (!user || !(await verifyPassword(password, user.password_hash))) {
@@ -817,6 +1300,8 @@ app.post('/api/login', async (req, res, next) => {
     await ensureDefaultExhibit(user.id);
     scheduleDatabaseExport();
     setSessionCookie(res, user.id);
+    req.user = user;
+    req.publicUser = publicUser(user);
     res.json({ user: publicUser(user) });
   } catch (error) {
     next(error);
@@ -869,7 +1354,10 @@ app.post('/api/account/password', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Passwords do not match.' });
     }
 
-    await query('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(newPassword), req.user.id]);
+    await query(
+      'UPDATE users SET password_hash = ?, password_changed_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [await hashPassword(newPassword), req.user.id]
+    );
     scheduleDatabaseExport();
     const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
     res.json({ ok: true, user: publicUser(user) });
@@ -884,6 +1372,7 @@ app.post('/api/password/forgot', async (req, res, next) => {
     if (!validEmail(email)) {
       return res.status(400).json({ error: 'Enter a valid email address.' });
     }
+    assertCodeIssueLimit(req, email, 'password-reset');
 
     const user = await get('SELECT * FROM users WHERE email = ?', [email]);
     if (user && Boolean(user.email_verified)) {
@@ -902,6 +1391,7 @@ app.post('/api/password/verify', async (req, res, next) => {
     if (!validEmail(email)) {
       return res.status(400).json({ error: 'Enter a valid email address.' });
     }
+    assertAuthAttemptLimit(req, email, 'password-verify');
 
     const user = await get('SELECT * FROM users WHERE email = ?', [email]);
     if (!user || !Boolean(user.email_verified) || !(await verifyAuthCode(user, 'password_reset', code))) {
@@ -924,6 +1414,7 @@ app.post('/api/password/reset', async (req, res, next) => {
     if (!validEmail(email) || !validPassword(newPassword)) {
       return res.status(400).json({ error: 'Enter the email and a password with at least 8 characters.' });
     }
+    assertAuthAttemptLimit(req, email, 'password-reset');
     if (newPassword !== newPasswordConfirm) {
       return res.status(400).json({ error: 'Passwords do not match.' });
     }
@@ -936,7 +1427,10 @@ app.post('/api/password/reset', async (req, res, next) => {
       return res.status(400).json({ error: 'That reset code did not match or has expired.' });
     }
 
-    await query('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(newPassword), user.id]);
+    await query(
+      'UPDATE users SET password_hash = ?, password_changed_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [await hashPassword(newPassword), user.id]
+    );
     scheduleDatabaseExport();
     clearSessionCookie(res);
     res.json({ ok: true, accountId: user.account_id });
@@ -981,6 +1475,7 @@ app.get('/api/exhibits/:id/events', requireAuth, async (req, res, next) => {
     if (!access) {
       return res.status(404).json({ error: 'This exhibit is not available.' });
     }
+    assertCanOpenExhibitStream(req.params.id, req.user.id);
 
     res.set({
       'Cache-Control': 'no-cache, no-transform',
@@ -1022,16 +1517,52 @@ app.post('/api/exhibits/:id/presence', requireAuth, async (req, res, next) => {
     if (!access) {
       return res.status(404).json({ error: 'This exhibit is not available.' });
     }
+    const sourceClientId = cleanClientId(req.get('x-cara-mia-client-id'));
+    assertRateLimit(req, [
+      { scope: 'presence:user-exhibit', key: `${req.user.id}:${req.params.id}`, limit: 120, windowMs: 60 * 1000 },
+      { scope: 'presence:client-exhibit', key: `${sourceClientId}:${req.params.id}`, limit: 80, windowMs: 60 * 1000 }
+    ]);
 
     const cursorImage = cleanCursorImage(req.body.cursorImage);
     broadcastExhibitEvent(req.params.id, 'cursor-updated', {
-      sourceClientId: cleanClientId(req.get('x-cara-mia-client-id')),
+      sourceClientId,
       accountId: req.publicUser.accountId,
       x: clampNumber(req.body.x, 0, -20000, 20000),
       y: clampNumber(req.body.y, 0, -20000, 20000),
       color: cleanCursorColor(req.body.color),
       cursorKind: cursorImage ? 'image' : 'arrow',
       cursorImage
+    });
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/exhibits/:id/cursor-bump', requireAuth, async (req, res, next) => {
+  try {
+    const access = await getAccess(req.params.id, req.user.id);
+    if (!access) {
+      return res.status(404).json({ error: 'This exhibit is not available.' });
+    }
+    const sourceClientId = cleanClientId(req.get('x-cara-mia-client-id'));
+    const targetClientId = cleanClientId(req.body.targetClientId);
+    assertRateLimit(req, [
+      { scope: 'cursor-bump:user-exhibit', key: `${req.user.id}:${req.params.id}`, limit: 60, windowMs: 60 * 1000 },
+      { scope: 'cursor-bump:client-exhibit', key: `${sourceClientId}:${req.params.id}`, limit: 30, windowMs: 60 * 1000 }
+    ]);
+
+    const effect = cleanCursorBumpEffect(req.body.effect);
+    broadcastExhibitEvent(req.params.id, 'cursor-updated', {
+      sourceClientId,
+      targetClientId,
+      accountId: req.publicUser.accountId,
+      x: clampNumber(req.body.x, 0, -20000, 20000),
+      y: clampNumber(req.body.y, 0, -20000, 20000),
+      color: cleanCursorColor(req.body.color),
+      cursorKind: 'arrow',
+      cursorImage: '',
+      bumpEffect: effect
     });
     res.json({ ok: true });
   } catch (error) {
@@ -1132,6 +1663,10 @@ app.post('/api/widgets', requireAuth, async (req, res, next) => {
     if (!['canvas', 'wordbox', 'question', 'music', 'sticker', 'picture', 'gif'].includes(type)) {
       return res.status(400).json({ error: 'Choose a valid widget.' });
     }
+    assertRateLimit(req, [
+      { scope: 'widgets:create:user-exhibit', key: `${req.user.id}:${exhibitId}`, limit: 40, windowMs: 60 * 1000 },
+      { scope: 'widgets:create:ip', key: clientIp(req), limit: 120, windowMs: 60 * 1000 }
+    ]);
 
     const defaultPage = await ensureDefaultPage(exhibitId);
     const requestedPageId = String(req.body.pageId || req.body.page_id || defaultPage.id);
@@ -1154,8 +1689,9 @@ app.post('/api/widgets', requireAuth, async (req, res, next) => {
       width: clampNumber(req.body.width, ['music', 'sticker', 'picture', 'gif'].includes(type) ? 300 : 260, 40, 3000),
       height: clampNumber(req.body.height, type === 'music' ? 120 : ['sticker', 'picture', 'gif'].includes(type) ? 240 : 180, 40, 3000),
       zIndex: Number(maxRow?.max_z || 0) + 1,
-      data: serializeData(req.body.data)
+      data: serializeData(req.body.data, type)
     };
+    await assertWidgetQuota(exhibitId, widget.data);
 
     await query(
       `INSERT INTO widgets (id, exhibit_id, page_id, type, x, y, width, height, z_index, data, created_by)
@@ -1200,6 +1736,10 @@ app.patch('/api/widgets/:id', requireAuth, async (req, res, next) => {
     if (!access || !access.canEdit) {
       return res.status(403).json({ error: 'Only collaborators can change this exhibit.' });
     }
+    assertRateLimit(req, [
+      { scope: 'widgets:update:user-exhibit', key: `${req.user.id}:${existing.exhibit_id}`, limit: 120, windowMs: 60 * 1000 },
+      { scope: 'widgets:update:ip', key: clientIp(req), limit: 240, windowMs: 60 * 1000 }
+    ]);
 
     const current = normalizeWidget(existing);
     let pageId = current.page_id;
@@ -1222,8 +1762,9 @@ app.patch('/api/widgets/:id', requireAuth, async (req, res, next) => {
       width: clampNumber(req.body.width, current.width, 40, 3000),
       height: clampNumber(req.body.height, current.height, 40, 3000),
       zIndex: clampNumber(req.body.zIndex ?? req.body.z_index, current.z_index, 1, 100000),
-      data: req.body.data === undefined ? serializeData(current.data) : serializeData(req.body.data)
+      data: req.body.data === undefined ? serializeData(current.data, existing.type) : serializeData(req.body.data, existing.type)
     };
+    await assertWidgetQuota(existing.exhibit_id, nextWidget.data, req.params.id);
 
     await query(
       `UPDATE widgets
@@ -1290,7 +1831,7 @@ app.post('/api/share', requireAuth, async (req, res, next) => {
 
     const target = await get('SELECT * FROM users WHERE email = ?', [email]);
     if (!target) {
-      return res.status(404).json({ error: 'No Cara Mia account uses that email yet.' });
+      return res.json({ ok: true, pending: true });
     }
     if (target.id === req.user.id) {
       return res.status(400).json({ error: 'This exhibit already belongs to you.' });
@@ -1392,9 +1933,16 @@ app.delete('/api/exhibits/:id/shares/:shareId', requireAuth, async (req, res, ne
 
 app.get('/api/music/search', requireAuth, async (req, res, next) => {
   try {
-    const term = String(req.query.q || '').trim();
+    const term = String(req.query.q || '').trim().slice(0, 120);
     if (term.length < 2) {
       return res.json({ results: [] });
+    }
+    const normalizedTerm = term.toLowerCase().slice(0, 120);
+    assertProviderSearchLimit(req, 'music', normalizedTerm);
+    const cacheKey = `music:${normalizedTerm}`;
+    const cached = cacheGet(providerSearchCache, cacheKey);
+    if (cached) {
+      return res.json({ results: cached });
     }
 
     const url = new URL('https://itunes.apple.com/search');
@@ -1411,13 +1959,14 @@ app.get('/api/music/search', requireAuth, async (req, res, next) => {
     const payload = await response.json();
     const results = (payload.results || []).map((track) => ({
       id: String(track.trackId),
-      title: track.trackName,
-      artist: track.artistName,
-      album: track.collectionName,
-      artwork: String(track.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
-      previewUrl: track.previewUrl
+      title: cleanText(track.trackName, 160),
+      artist: cleanText(track.artistName, 160),
+      album: cleanText(track.collectionName, 160),
+      artwork: cleanMediaUrl(String(track.artworkUrl100 || '').replace('100x100bb', '600x600bb'), 2048),
+      previewUrl: cleanMediaUrl(track.previewUrl, 2048)
     }));
 
+    cacheSet(providerSearchCache, cacheKey, results);
     res.json({ results });
   } catch (error) {
     if (error.name === 'TimeoutError') {
@@ -1430,13 +1979,21 @@ app.get('/api/music/search', requireAuth, async (req, res, next) => {
 app.get('/api/assets/search', requireAuth, async (req, res, next) => {
   try {
     const type = String(req.query.type || '').trim().toLowerCase();
-    const term = String(req.query.q || '').trim();
+    const term = String(req.query.q || '').trim().slice(0, 120);
     if (!['sticker', 'gif'].includes(type)) {
       return res.status(400).json({ error: 'Choose sticker or GIF.' });
+    }
+    const normalizedTerm = term.toLowerCase().slice(0, 120);
+    assertProviderSearchLimit(req, `assets-${type}`, normalizedTerm || 'trending');
+    const cacheKey = `assets:${type}:${normalizedTerm}`;
+    const cached = cacheGet(providerSearchCache, cacheKey);
+    if (cached) {
+      return res.json({ results: cached });
     }
 
     const remoteResults = await giphyAssetResults(type, term);
     const results = remoteResults?.length ? remoteResults : localAssetResults(type, term);
+    cacheSet(providerSearchCache, cacheKey, results);
     res.json({ results });
   } catch (error) {
     if (error.name === 'TimeoutError') {
@@ -1455,16 +2012,41 @@ app.use((error, _req, res, _next) => {
   if (status >= 500) {
     console.error(error);
   }
+  if (status === 429 && error.retryAfterSeconds) {
+    res.setHeader('Retry-After', String(error.retryAfterSeconds));
+  }
   res.status(status).json({ error: error.message || 'Something went wrong.' });
 });
 
-initDb()
-  .then(() => {
-    app.listen(port, '0.0.0.0', () => {
-      console.log(`Cara Mia is running on http://localhost:${port}`);
-    });
-  })
-  .catch((error) => {
+async function start() {
+  await initDb();
+  return app.listen(port, '0.0.0.0', () => {
+    console.log(`Cara Mia is running on http://localhost:${port}`);
+  });
+}
+
+if (require.main === module) {
+  start().catch((error) => {
     console.error('Failed to start Cara Mia:', error);
     process.exit(1);
   });
+}
+
+module.exports = {
+  app,
+  start,
+  _private: {
+    assertRateLimit,
+    cleanCursorImage,
+    configuredSecret,
+    compactLogField,
+    hasOperatorDiagnosticsAccess,
+    makeSignupVerificationToken,
+    readSignupVerificationToken,
+    rateLimitBuckets,
+    sanitizeWidgetData,
+    serializeData,
+    shouldLogAccess,
+    takeRateLimit
+  }
+};

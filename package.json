@@ -5,7 +5,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node src/server.js"
+    "dev": "node src/server.js",
+    "test": "node --test"
   },
   "engines": {
     "node": "20.x"
@@ -16,7 +17,7 @@
     "cookie-parser": "^1.4.7",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
-    "nodemailer": "^6.10.1",
+    "nodemailer": "^9.0.3",
     "pg": "^8.13.1"
   }
 }

@@ -17,11 +17,25 @@ let exportRunning = false;
 let exportQueued = false;
 const widgetTypeCheck = "type IN ('canvas', 'wordbox', 'question', 'music', 'sticker', 'picture', 'gif')";
 const exportColumns = {
-  users: ['id', 'email', 'account_id', 'password_hash', 'email_verified', 'created_at'],
+  users: ['id', 'email', 'account_id', 'password_hash', 'email_verified', 'password_changed_at', 'created_at'],
   exhibits: ['id', 'owner_user_id', 'title', 'created_at', 'updated_at'],
   exhibit_pages: ['id', 'exhibit_id', 'name', 'background_theme', 'sort_order', 'created_at', 'updated_at'],
   widgets: ['id', 'exhibit_id', 'page_id', 'type', 'x', 'y', 'width', 'height', 'z_index', 'data', 'created_by', 'created_at', 'updated_at'],
-  shares: ['id', 'exhibit_id', 'target_user_id', 'role', 'created_by', 'created_at']
+  shares: ['id', 'exhibit_id', 'target_user_id', 'role', 'created_by', 'created_at'],
+  user_access_logs: [
+    'id',
+    'user_id',
+    'account_id',
+    'method',
+    'path',
+    'status_code',
+    'duration_ms',
+    'completed',
+    'ip_address',
+    'user_agent',
+    'referrer',
+    'created_at'
+  ]
 };
 
 function readSchema(fileName) {
@@ -183,11 +197,12 @@ function normalizeExportValue(value) {
 }
 
 function orderedTableQuery(table) {
-  if (table === 'users') return 'SELECT id, email, account_id, password_hash, email_verified, created_at FROM users ORDER BY created_at ASC';
+  if (table === 'users') return 'SELECT id, email, account_id, password_hash, email_verified, password_changed_at, created_at FROM users ORDER BY created_at ASC';
   if (table === 'exhibits') return 'SELECT id, owner_user_id, title, created_at, updated_at FROM exhibits ORDER BY created_at ASC';
   if (table === 'exhibit_pages') return 'SELECT id, exhibit_id, name, background_theme, sort_order, created_at, updated_at FROM exhibit_pages ORDER BY exhibit_id ASC, sort_order ASC, created_at ASC';
   if (table === 'widgets') return 'SELECT id, exhibit_id, page_id, type, x, y, width, height, z_index, data, created_by, created_at, updated_at FROM widgets ORDER BY exhibit_id ASC, page_id ASC, z_index ASC, created_at ASC';
-  return 'SELECT id, exhibit_id, target_user_id, role, created_by, created_at FROM shares ORDER BY created_at ASC';
+  if (table === 'shares') return 'SELECT id, exhibit_id, target_user_id, role, created_by, created_at FROM shares ORDER BY created_at ASC';
+  return 'SELECT id, user_id, account_id, method, path, status_code, duration_ms, completed, ip_address, user_agent, referrer, created_at FROM user_access_logs ORDER BY created_at DESC, id DESC';
 }
 
 async function writeCsv(table, rows) {
@@ -252,7 +267,7 @@ async function exportDatabaseSnapshot() {
   if (!exportSnapshots) return;
   await fsp.mkdir(exportDir, { recursive: true });
 
-  const tableNames = ['users', 'exhibits', 'exhibit_pages', 'widgets', 'shares'];
+  const tableNames = ['users', 'exhibits', 'exhibit_pages', 'widgets', 'shares', 'user_access_logs'];
   const tables = {};
   for (const table of tableNames) {
     tables[table] = await all(orderedTableQuery(table));
@@ -291,6 +306,35 @@ async function migratePostgresWidgetTypes() {
   await client.query(`ALTER TABLE widgets ADD CONSTRAINT widgets_type_check CHECK (${widgetTypeCheck})`);
 }
 
+async function recordUserAccessLog(entry) {
+  await query(
+    `INSERT INTO user_access_logs
+       (id, user_id, account_id, method, path, status_code, duration_ms, completed, ip_address, user_agent, referrer)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      randomUUID(),
+      entry.userId || null,
+      entry.accountId || null,
+      entry.method,
+      entry.path,
+      entry.statusCode,
+      entry.durationMs,
+      isPostgres ? Boolean(entry.completed) : (entry.completed ? 1 : 0),
+      entry.ipAddress || null,
+      entry.userAgent || null,
+      entry.referrer || null
+    ]
+  );
+  scheduleDatabaseExport(5000);
+}
+
+async function migratePostgresUsers() {
+  await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ');
+  await client.query('UPDATE users SET password_changed_at = COALESCE(password_changed_at, created_at, CURRENT_TIMESTAMP)');
+  await client.query('ALTER TABLE users ALTER COLUMN password_changed_at SET DEFAULT CURRENT_TIMESTAMP');
+  await client.query('ALTER TABLE users ALTER COLUMN password_changed_at SET NOT NULL');
+}
+
 async function migratePostgresPages() {
   await client.query(`
     CREATE TABLE IF NOT EXISTS exhibit_pages (
@@ -316,6 +360,13 @@ async function migratePostgresPages() {
 
 function sqliteColumnExists(table, column) {
   return client.prepare(`PRAGMA table_info(${table})`).all().some((item) => item.name === column);
+}
+
+function migrateSqliteUsers() {
+  if (!sqliteColumnExists('users', 'password_changed_at')) {
+    client.exec('ALTER TABLE users ADD COLUMN password_changed_at TEXT');
+  }
+  client.exec("UPDATE users SET password_changed_at = COALESCE(password_changed_at, created_at, CURRENT_TIMESTAMP)");
 }
 
 function migrateSqlitePages() {
@@ -407,6 +458,7 @@ async function initDb() {
       ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined
     });
     await client.query(readSchema('schema.sql'));
+    await migratePostgresUsers();
     await migratePostgresWidgetTypes();
     await migratePostgresPages();
   } else {
@@ -415,6 +467,7 @@ async function initDb() {
     client = new BetterSqlite3(sqlitePath);
     client.pragma('foreign_keys = ON');
     client.exec(readSchema('schema.sqlite.sql'));
+    migrateSqliteUsers();
     migrateSqlitePages();
     migrateSqliteWidgetTypes();
   }
@@ -432,6 +485,7 @@ module.exports = {
   normalizeWidget,
   publicUser,
   query,
+  recordUserAccessLog,
   scheduleDatabaseExport,
   ensureDefaultExhibit,
   ensureDefaultPage

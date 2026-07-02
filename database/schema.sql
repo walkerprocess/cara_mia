@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
   account_id TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   email_verified BOOLEAN NOT NULL DEFAULT TRUE,
+  password_changed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -72,6 +73,21 @@ CREATE TABLE IF NOT EXISTS shares (
   UNIQUE (exhibit_id, target_user_id)
 );
 
+CREATE TABLE IF NOT EXISTS user_access_logs (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  account_id TEXT,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,
+  status_code INTEGER NOT NULL,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  completed BOOLEAN NOT NULL DEFAULT TRUE,
+  ip_address TEXT,
+  user_agent TEXT,
+  referrer TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_widgets_exhibit ON widgets(exhibit_id);
 CREATE INDEX IF NOT EXISTS idx_widgets_created_by ON widgets(created_by);
 CREATE INDEX IF NOT EXISTS idx_auth_codes_user_purpose ON auth_codes(user_id, purpose, created_at);
@@ -80,3 +96,5 @@ CREATE INDEX IF NOT EXISTS idx_pages_exhibit ON exhibit_pages(exhibit_id, sort_o
 CREATE INDEX IF NOT EXISTS idx_exhibits_owner ON exhibits(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_shares_target ON shares(target_user_id);
 CREATE INDEX IF NOT EXISTS idx_shares_exhibit ON shares(exhibit_id);
+CREATE INDEX IF NOT EXISTS idx_access_logs_created_at ON user_access_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_access_logs_user ON user_access_logs(user_id, created_at);

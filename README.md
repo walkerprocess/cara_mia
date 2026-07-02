@@ -15,6 +15,8 @@ Open `http://localhost:3000`.
 
 Local data is saved in `database/cara-mia.sqlite`. On Render, the same app uses the managed Postgres database from `DATABASE_URL`.
 
+Local request/user activity is saved in the `user_access_logs` table and exported to `database/exports/user_access_logs.csv` plus the `user_access_logs` workbook sheet. It records the request method, path, status, duration, IP, user agent, referrer, and authenticated account id when available; it does not store cookies, passwords, auth codes, or request bodies.
+
 Optional Sticker search uses GIPHY when `GIPHY_API_KEY` is set. The single Sticker picker includes both still sticker-style assets and animated GIF-style assets; without that key, Cara Mia falls back to its built-in gothic recommendations.
 
 Email verification and password reset use Resend over HTTPS when `RESEND_API_KEY` is set. This is the recommended option for the free Render web service because free Render instances block outbound SMTP ports.
@@ -33,7 +35,7 @@ If `RESEND_API_KEY` is not set, the app falls back to SMTP when these environmen
 
 During local development without SMTP settings, verification and reset codes are printed in the server terminal so the flow can still be tested.
 
-To inspect the deployed email setup without sending a real email, open `/api/email/status?check=true`. It reports whether the app is using Resend, SMTP, local console mode, or missing settings.
+To inspect the deployed email setup without sending a real email, set `EMAIL_STATUS_TOKEN` and open `/api/email/status?check=true&token=...`. In production, detailed provider status and active checks require that operator token.
 
 ## Render Deploy
 

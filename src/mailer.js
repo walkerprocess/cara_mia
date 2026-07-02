@@ -160,15 +160,16 @@ async function sendAuthCode({ to, code, purpose, accountId }) {
         })
       });
     } catch (error) {
-      const next = new Error(`Resend email request failed. ${error.message} Check RESEND_API_KEY and EMAIL_FROM in Render.`);
+      console.error('Resend email request failed:', error);
+      const next = new Error('Email could not be sent right now. Please try again later.');
       next.statusCode = 502;
       throw next;
     }
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      const message = payload.message || payload.error || `Resend returned HTTP ${response.status}.`;
-      const next = new Error(`${message} Check RESEND_API_KEY and EMAIL_FROM in Render.`);
+      console.error('Resend email request was rejected:', response.status, payload);
+      const next = new Error('Email could not be sent right now. Please try again later.');
       next.statusCode = 502;
       throw next;
     }
@@ -197,7 +198,8 @@ async function sendAuthCode({ to, code, purpose, accountId }) {
     });
   } catch (error) {
     const publicError = publicMailError(error);
-    const next = new Error(`${publicError.message} ${publicError.hint}`);
+    console.error('SMTP email send failed:', publicError);
+    const next = new Error('Email could not be sent right now. Please try again later.');
     next.statusCode = 502;
     throw next;
   }
