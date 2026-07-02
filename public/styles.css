@@ -2559,6 +2559,21 @@ select:focus {
   object-fit: contain;
 }
 
+.system-cursor-notice {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  color: rgba(5, 4, 6, 0.82);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(5, 4, 6, 0.1);
+  border-radius: 6px;
+  cursor: default;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+}
+
 #cursorColorInput {
   width: 54px;
   height: 54px;
@@ -2601,10 +2616,13 @@ select:focus {
 .default-cursor-mark {
   display: grid;
   place-items: center;
-  gap: 3px;
+  gap: 4px;
+  min-height: 48px;
   color: #050406;
-  font-size: 11px;
+  cursor: default;
+  font-size: 12px;
   font-weight: 800;
+  text-align: center;
 }
 
 .default-cursor-mark strong {
@@ -2709,6 +2727,13 @@ select:focus {
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.default-cursor-mark small {
+  color: rgba(5, 4, 6, 0.62);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 @media (max-width: 660px) {

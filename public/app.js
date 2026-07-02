@@ -483,6 +483,13 @@ function appendCursorGraphic(target, imageUrl) {
   target.appendChild(arrow);
 }
 
+function appendSystemCursorNotice(target) {
+  const notice = document.createElement("span");
+  notice.className = "system-cursor-notice";
+  notice.textContent = "Default Windows cursor";
+  target.appendChild(notice);
+}
+
 function renderCursorContents(target, imageUrl, label) {
   target.replaceChildren();
   appendCursorGraphic(target, imageUrl);
@@ -629,6 +636,7 @@ function removeRemoteCursors() {
 
 function handleCursorUpdate(payload) {
   if (!state.exhibit || payload.sourceClientId === clientId) return;
+  if (state.cursorDrag?.peerId === payload.sourceClientId) return;
   const peer = {
     ...payload,
     exhibitId: state.exhibit.id,
@@ -806,7 +814,9 @@ function startCursorDragAutoScroll() {
     boardViewport.scrollTop += dy;
     state.boardRect = null;
     applyCursorPeerDragPoint(
-      boardPointFromClient(drag.lastClientX, drag.lastClientY),
+      cursorDragPointForPointer(
+        boardPointFromClient(drag.lastClientX, drag.lastClientY),
+      ),
     );
     startCursorDragAutoScroll();
   });
@@ -819,11 +829,17 @@ function beginCursorPeerDrag(event) {
   const point = boardPoint(event);
   const peer = cursorPeerAtPoint(point, cursorDragDistance);
   if (!peer) return false;
+  const peerX = Number(peer.x);
+  const peerY = Number(peer.y);
   state.cursorDrag = {
     pointerId: event.pointerId,
     peerId: peer.id,
     peer,
     start: point,
+    grabOffset: {
+      x: Number.isFinite(peerX) ? peerX - point.x : 0,
+      y: Number.isFinite(peerY) ? peerY - point.y : 0,
+    },
     dragging: false,
     lastSentAt: 0,
     lastClientX: event.clientX,
@@ -861,6 +877,14 @@ function sendCursorDrag(point, peer, final = false) {
   }).catch(() => {});
 }
 
+function cursorDragPointForPointer(point) {
+  const offset = state.cursorDrag?.grabOffset || { x: 0, y: 0 };
+  return {
+    x: point.x + offset.x,
+    y: point.y + offset.y,
+  };
+}
+
 function applyCursorPeerDragPoint(point, final = false) {
   const drag = state.cursorDrag;
   if (!drag) return;
@@ -895,7 +919,7 @@ function updateCursorPeerDrag(event, final = false) {
     drag.dragging = true;
   }
   if (drag.dragging) {
-    applyCursorPeerDragPoint(point, final);
+    applyCursorPeerDragPoint(cursorDragPointForPointer(point), final);
     if (!final) startCursorDragAutoScroll();
   }
   event.preventDefault();
@@ -978,7 +1002,11 @@ function renderCursorPreview() {
   cursorColorInput.value = state.cursorProfile.color;
   cursorPreview.style.setProperty("--cursor-color", state.cursorProfile.color);
   cursorPreview.replaceChildren();
-  appendCursorGraphic(cursorPreview, state.cursorProfile.cursorImage);
+  if (state.cursorProfile.cursorImage) {
+    appendCursorGraphic(cursorPreview, state.cursorProfile.cursorImage);
+  } else {
+    appendSystemCursorNotice(cursorPreview);
+  }
 
   $$(".cursor-preset").forEach((button) => {
     button.classList.toggle(
@@ -999,7 +1027,7 @@ function buildCursorPresets() {
     button.title = preset.label;
     button.innerHTML = preset.url
       ? `<img src="${preset.url}" alt="">`
-      : '<span class="default-cursor-mark"><span class="remote-cursor-arrow"></span><strong>PC cursor</strong></span>';
+      : '<span class="default-cursor-mark system-cursor-mark"><strong>Windows</strong><small>Default</small></span>';
     button.addEventListener("click", () => {
       state.cursorProfile.cursorImage = preset.url;
       saveCursorProfile();
