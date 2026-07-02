@@ -95,6 +95,7 @@ test('access logging skips noisy and static requests', () => {
   assert.equal(serverPrivate.shouldLogAccess(makeReq('POST', '/api/login')), true);
   assert.equal(serverPrivate.shouldLogAccess(makeReq('GET', '/api/exhibits/exhibit-1/events')), true);
   assert.equal(serverPrivate.shouldLogAccess(makeReq('POST', '/api/exhibits/exhibit-1/presence')), false);
+  assert.equal(serverPrivate.shouldLogAccess(makeReq('POST', '/api/exhibits/exhibit-1/cursor-drag')), false);
   assert.equal(serverPrivate.shouldLogAccess(makeReq('GET', '/health')), false);
   assert.equal(serverPrivate.shouldLogAccess(makeReq('GET', '/app.js')), false);
   assert.equal(serverPrivate.shouldLogAccess(makeReq('OPTIONS', '/api/login')), false);

@@ -120,6 +120,7 @@ function shouldLogAccess(req) {
   if (pathname === '/health') return false;
   if (pathname.endsWith('/presence')) return false;
   if (pathname.endsWith('/cursor-bump')) return false;
+  if (pathname.endsWith('/cursor-drag')) return false;
   if (isStaticAssetPath(pathname)) return false;
   return true;
 }
@@ -710,6 +711,16 @@ function exhibitStreamCount(exhibitId, predicate = null) {
     if (predicate(client)) count += 1;
   }
   return count;
+}
+
+function exhibitHasClient(exhibitId, clientId) {
+  if (!clientId) return false;
+  const clients = exhibitStreams.get(exhibitId);
+  if (!clients) return false;
+  for (const client of clients) {
+    if (client.id === clientId) return true;
+  }
+  return false;
 }
 
 function assertCanOpenExhibitStream(exhibitId, userId) {
@@ -1563,6 +1574,44 @@ app.post('/api/exhibits/:id/cursor-bump', requireAuth, async (req, res, next) =>
       cursorKind: 'arrow',
       cursorImage: '',
       bumpEffect: effect
+    });
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/exhibits/:id/cursor-drag', requireAuth, async (req, res, next) => {
+  try {
+    const access = await getAccess(req.params.id, req.user.id);
+    if (!access) {
+      return res.status(404).json({ error: 'This exhibit is not available.' });
+    }
+    const sourceClientId = cleanClientId(req.get('x-cara-mia-client-id'));
+    const targetClientId = cleanClientId(req.body.targetClientId);
+    if (!targetClientId || targetClientId === sourceClientId) {
+      return res.status(400).json({ error: 'Choose another cursor to drag.' });
+    }
+    assertRateLimit(req, [
+      { scope: 'cursor-drag:user-exhibit', key: `${req.user.id}:${req.params.id}`, limit: 420, windowMs: 60 * 1000 },
+      { scope: 'cursor-drag:client-exhibit', key: `${sourceClientId}:${req.params.id}`, limit: 360, windowMs: 60 * 1000 }
+    ]);
+    if (!exhibitHasClient(req.params.id, targetClientId)) {
+      return res.status(404).json({ error: 'That cursor is no longer active.' });
+    }
+
+    const accountId = normalizeAccountId(req.body.accountId);
+    const cursorImage = cleanCursorImage(req.body.cursorImage);
+    broadcastExhibitEvent(req.params.id, 'cursor-updated', {
+      sourceClientId: targetClientId,
+      draggedByClientId: sourceClientId,
+      draggedByAccountId: req.publicUser.accountId,
+      accountId: validAccountId(accountId) ? accountId : 'guest',
+      x: clampNumber(req.body.x, 0, -20000, 20000),
+      y: clampNumber(req.body.y, 0, -20000, 20000),
+      color: cleanCursorColor(req.body.color),
+      cursorKind: cursorImage ? 'image' : 'arrow',
+      cursorImage
     });
     res.json({ ok: true });
   } catch (error) {

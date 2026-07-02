@@ -185,7 +185,7 @@ const clientId =
   window.crypto?.randomUUID?.() ||
   `cm-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const cursorPresets = [
-  { id: "arrow", label: "Arrow", url: "" },
+  { id: "system", label: "PC cursor", url: "" },
   { id: "preset-1", label: "Preset 1", url: "/cursors/preset-1.png" },
   { id: "preset-2", label: "Preset 2", url: "/cursors/preset-2.png" },
   { id: "preset-3", label: "Preset 3", url: "/cursors/preset-3.png" },
@@ -217,6 +217,9 @@ const cursorPresenceInterval = 150;
 const cursorPresenceMinDistance = 6;
 const cursorBumpDistance = 54;
 const cursorBumpCooldownMs = 900;
+const cursorDragDistance = 58;
+const cursorDragStartDistance = 10;
+const cursorDragSendInterval = 180;
 const cursorBumpEffects = ["hearts", "black-cat", "orange-cat"];
 const cursorEffectAssets = {
   hearts: "/cursor-effects/pixel-heart.png",
@@ -265,6 +268,7 @@ const state = {
   cursorLastSentPoint: null,
   cursorLastSentAt: 0,
   lastCursorBumpAt: 0,
+  cursorDrag: null,
   pendingLocalCursorPoint: null,
   localCursorFrame: null,
   localCursorKey: "",
@@ -330,6 +334,8 @@ const pageForm = $("#pageForm");
 const pageDialogTitle = $("#pageDialogTitle");
 const pageNameInput = $("#pageNameInput");
 const cursorDialog = $("#cursorDialog");
+const settingsNavButtons = $$("[data-settings-section]");
+const settingsPages = $$("[data-settings-panel]");
 const accountUsername = $("#accountUsername");
 const accountEmail = $("#accountEmail");
 const changeUsernameForm = $("#changeUsernameForm");
@@ -434,7 +440,7 @@ function activeCursorPreset() {
   return (
     cursorPresets.find(
       (preset) => preset.url && preset.url === state.cursorProfile.cursorImage,
-    )?.id || (state.cursorProfile.cursorImage ? "custom" : "arrow")
+    )?.id || (state.cursorProfile.cursorImage ? "custom" : "system")
   );
 }
 
@@ -674,7 +680,7 @@ function playCursorBumpEffect(point, effect = "hearts", target = board) {
       burst.appendChild(heart);
     });
     effectLayer.appendChild(burst);
-    removeAfterAnimation(burst, 30000);
+    removeAfterAnimation(burst, 1800);
     return true;
   }
 
@@ -688,11 +694,11 @@ function playCursorBumpEffect(point, effect = "hearts", target = board) {
   cat.style.setProperty("--jump-x", isBlackCat ? "-92px" : "92px");
   cat.style.setProperty("--jump-rotation", isBlackCat ? "-18deg" : "18deg");
   effectLayer.appendChild(cat);
-  removeAfterAnimation(cat, 30000);
+  removeAfterAnimation(cat, 1800);
   return true;
 }
 
-function cursorPeerAtPoint(point) {
+function cursorPeerAtPoint(point, maxDistance = cursorBumpDistance) {
   const now = Date.now();
   let match = null;
   state.cursorPeers.forEach((peer, id) => {
@@ -702,7 +708,7 @@ function cursorPeerAtPoint(point) {
     const y = Number(peer.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const distance = Math.hypot(point.x - x, point.y - y);
-    if (distance > cursorBumpDistance) return;
+    if (distance > maxDistance) return;
     if (!match || distance < match.distance) {
       match = { ...peer, id, distance };
     }
@@ -710,13 +716,10 @@ function cursorPeerAtPoint(point) {
   return match;
 }
 
-function maybeTriggerCursorBump(event) {
-  if (!state.exhibit || event.button !== 0) return;
+function triggerCursorBumpAtPoint(point, peer = cursorPeerAtPoint(point)) {
+  if (!state.exhibit || !peer) return false;
   const now = Date.now();
-  if (now - state.lastCursorBumpAt < cursorBumpCooldownMs) return;
-  const point = boardPoint(event);
-  const peer = cursorPeerAtPoint(point);
-  if (!peer) return;
+  if (now - state.lastCursorBumpAt < cursorBumpCooldownMs) return false;
   const effect = cursorBumpEffect();
   state.lastCursorBumpAt = now;
   playCursorBumpEffect(point, effect);
@@ -726,9 +729,117 @@ function maybeTriggerCursorBump(event) {
       targetClientId: peer.id,
       x: Math.round(point.x),
       y: Math.round(point.y),
+      color: state.cursorProfile.color,
       effect,
     }),
   }).catch(() => {});
+  return true;
+}
+
+function beginCursorPeerDrag(event) {
+  if (!state.exhibit || event.button !== 0 || event.target !== board) {
+    return false;
+  }
+  const point = boardPoint(event);
+  const peer = cursorPeerAtPoint(point, cursorDragDistance);
+  if (!peer) return false;
+  state.cursorDrag = {
+    pointerId: event.pointerId,
+    peerId: peer.id,
+    peer,
+    start: point,
+    dragging: false,
+    lastSentAt: 0,
+  };
+  board.classList.add("cursor-peer-dragging");
+  board.setPointerCapture(event.pointerId);
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
+function draggedCursorPayload(peer, point) {
+  const cursorImage = peer.cursorKind === "image" ? peer.cursorImage || "" : "";
+  return {
+    targetClientId: peer.id,
+    accountId: peer.accountId || "",
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+    color: peer.color || "#7d38ff",
+    cursorImage,
+  };
+}
+
+function sendCursorDrag(point, peer, final = false) {
+  if (!state.exhibit || !peer?.id) return;
+  const now = Date.now();
+  if (!final && now - state.cursorDrag.lastSentAt < cursorDragSendInterval) {
+    return;
+  }
+  state.cursorDrag.lastSentAt = now;
+  api(`/api/exhibits/${state.exhibit.id}/cursor-drag`, {
+    method: "POST",
+    body: JSON.stringify(draggedCursorPayload(peer, point)),
+  }).catch(() => {});
+}
+
+function updateCursorPeerDrag(event, final = false) {
+  const drag = state.cursorDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return false;
+  const point = boardPoint(event);
+  const moved = Math.hypot(point.x - drag.start.x, point.y - drag.start.y);
+  if (!drag.dragging && moved < cursorDragStartDistance && !final) {
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+  if (!drag.dragging && moved >= cursorDragStartDistance) {
+    drag.dragging = true;
+  }
+  if (drag.dragging) {
+    const basePeer = state.cursorPeers.get(drag.peerId) || drag.peer;
+    const peer = {
+      ...basePeer,
+      id: drag.peerId,
+      x: point.x,
+      y: point.y,
+      exhibitId: state.exhibit.id,
+      updatedAt: Date.now(),
+    };
+    delete peer.bumpEffect;
+    state.cursorPeers.set(drag.peerId, peer);
+    renderRemoteCursor(drag.peerId, peer);
+    sendCursorDrag(point, peer, final);
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
+function endCursorPeerDrag(event) {
+  const drag = state.cursorDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return false;
+  if (drag.dragging) {
+    updateCursorPeerDrag(event, true);
+  } else {
+    triggerCursorBumpAtPoint(boardPoint(event), drag.peer);
+  }
+  clearCursorPeerDrag(event.pointerId);
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
+function clearCursorPeerDrag(pointerId) {
+  try {
+    if (board.hasPointerCapture?.(pointerId)) {
+      board.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // Pointer capture can already be gone after browser-level cancellation.
+  }
+  state.cursorDrag = null;
+  board.classList.remove("cursor-peer-dragging");
 }
 
 function sendCursorPresence(point) {
@@ -800,7 +911,7 @@ function buildCursorPresets() {
     button.title = preset.label;
     button.innerHTML = preset.url
       ? `<img src="${preset.url}" alt="">`
-      : '<span class="default-cursor-mark"><span class="remote-cursor-arrow"></span><strong>Default</strong></span>';
+      : '<span class="default-cursor-mark"><span class="remote-cursor-arrow"></span><strong>PC cursor</strong></span>';
     button.addEventListener("click", () => {
       state.cursorProfile.cursorImage = preset.url;
       saveCursorProfile();
@@ -1116,6 +1227,19 @@ function renderAccountSettings() {
   if (changeUsernameForm) {
     changeUsernameForm.elements.accountId.value = state.user?.accountId || "";
   }
+}
+
+function setSettingsSection(sectionId = "account") {
+  settingsNavButtons.forEach((button) => {
+    const active = button.dataset.settingsSection === sectionId;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  settingsPages.forEach((page) => {
+    const active = page.dataset.settingsPanel === sectionId;
+    page.hidden = !active;
+    page.classList.toggle("active", active);
+  });
 }
 
 function openPasswordResetDialog(email = "") {
@@ -4192,6 +4316,7 @@ cursorSettingsButton.addEventListener("click", () => {
     changeNewPasswordConfirmField,
   ].forEach(clearFieldError);
   setInlineError(changePasswordNote);
+  setSettingsSection("account");
   renderCursorPreview();
   renderBackgroundPresets();
   cursorDialog.showModal();
@@ -4201,6 +4326,12 @@ cursorDialog.addEventListener("click", (event) => {
   if (event.target === cursorDialog) {
     cursorDialog.close();
   }
+});
+
+settingsNavButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setSettingsSection(button.dataset.settingsSection || "account");
+  });
 });
 
 changeUsernameForm.addEventListener("submit", async (event) => {
@@ -4498,7 +4629,7 @@ boardViewport.addEventListener(
 );
 
 board.addEventListener("pointerdown", (event) => {
-  maybeTriggerCursorBump(event);
+  if (beginCursorPeerDrag(event)) return;
   if (!canEdit()) return;
   if (!event.target.closest(".art-widget")) {
     clearWidgetSelection();
@@ -4516,6 +4647,7 @@ board.addEventListener("pointermove", (event) => {
   const point = boardPoint(event);
   renderLocalCursor(point);
   queueCursorPresence(point);
+  if (updateCursorPeerDrag(event)) return;
   if (!state.draft) return;
   const rect = normalizeRect(state.draft.start, point);
   updateDragPreview(rect);
@@ -4526,6 +4658,7 @@ board.addEventListener("pointerleave", () => {
 });
 
 board.addEventListener("pointerup", async (event) => {
+  if (endCursorPeerDrag(event)) return;
   if (!state.draft) return;
   const draft = state.draft;
   const rect = normalizeRect(draft.start, boardPoint(event));
@@ -4542,6 +4675,12 @@ board.addEventListener("pointerup", async (event) => {
     await createWidget(draft.type, rect, data);
   } catch (error) {
     showToast(error.message);
+  }
+});
+
+board.addEventListener("pointercancel", (event) => {
+  if (state.cursorDrag?.pointerId === event.pointerId) {
+    clearCursorPeerDrag(event.pointerId);
   }
 });
 

@@ -4,10 +4,22 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cara Mia</title>
+    <meta name="description" content="For all those lovers out there, draw, write, and enjoy" />
+    <meta property="og:title" content="Cara Mia" />
+    <meta property="og:description" content="For all those lovers out there, draw, write, and enjoy" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://cara-mia.onrender.com/" />
+    <meta property="og:image" content="https://cara-mia.onrender.com/social/title.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Cara Mia" />
+    <meta name="twitter:description" content="For all those lovers out there, draw, write, and enjoy" />
+    <meta name="twitter:image" content="https://cara-mia.onrender.com/social/title.png" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/social/title.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260701-cursor-effects-12" />
+    <link rel="stylesheet" href="/styles.css?v=20260702-settings-cursor-drag" />
   </head>
   <body>
     <div class="gradient-field" aria-hidden="true"></div>
@@ -202,66 +214,90 @@
     </dialog>
 
     <dialog id="cursorDialog" class="modal">
-      <section class="modal-panel cursor-panel">
+      <section class="modal-panel cursor-panel settings-panel">
         <button class="modal-close" type="button" aria-label="Close"><i data-lucide="x"></i></button>
         <h2>Settings</h2>
-        <section class="settings-section">
-          <h3>Account</h3>
-          <div class="account-summary">
-            <span>Username</span>
-            <strong id="accountUsername">-</strong>
-            <span>Email</span>
-            <strong id="accountEmail">-</strong>
+        <div class="settings-layout">
+          <nav class="settings-nav" aria-label="Settings sections">
+            <button class="settings-nav-button active" type="button" data-settings-section="account">
+              <i data-lucide="user"></i>
+              <span>Account</span>
+            </button>
+            <button class="settings-nav-button" type="button" data-settings-section="cursor">
+              <i data-lucide="mouse-pointer-2"></i>
+              <span>Cursor</span>
+            </button>
+            <button class="settings-nav-button" type="button" data-settings-section="background">
+              <i data-lucide="image"></i>
+              <span>Background</span>
+            </button>
+          </nav>
+          <div class="settings-pages">
+            <div class="settings-page active" data-settings-panel="account">
+              <section class="settings-section">
+                <h3>Account</h3>
+                <div class="account-summary">
+                  <span>Username</span>
+                  <strong id="accountUsername">-</strong>
+                  <span>Email</span>
+                  <strong id="accountEmail">-</strong>
+                </div>
+              </section>
+              <section class="settings-section">
+                <h3>Change username</h3>
+                <form id="changeUsernameForm" class="settings-form">
+                  <label id="changeUsernameField">
+                    <span>New username</span>
+                    <input name="accountId" autocomplete="username" minlength="3" maxlength="32" required />
+                  </label>
+                  <p id="changeUsernameNote" class="auth-note form-error-note"></p>
+                  <button class="primary-button" type="submit">Change username</button>
+                </form>
+              </section>
+              <section class="settings-section">
+                <h3>Reset password</h3>
+                <form id="changePasswordForm" class="settings-form">
+                  <label id="changeCurrentPasswordField">
+                    <span>Current password</span>
+                    <input name="currentPassword" type="password" autocomplete="current-password" required />
+                  </label>
+                  <label id="changeNewPasswordField">
+                    <span>New password</span>
+                    <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+                  </label>
+                  <label id="changeNewPasswordConfirmField">
+                    <span>Confirm new password</span>
+                    <input name="newPasswordConfirm" type="password" autocomplete="new-password" minlength="8" required />
+                  </label>
+                  <p id="changePasswordNote" class="auth-note form-error-note"></p>
+                  <button class="primary-button" type="submit">Change password</button>
+                  <button id="settingsForgotPasswordButton" class="text-button" type="button">Forgot password?</button>
+                </form>
+              </section>
+            </div>
+            <div class="settings-page" data-settings-panel="cursor" hidden>
+              <section class="settings-section">
+                <h3>Cursor</h3>
+                <div class="cursor-preview-row">
+                  <div id="cursorPreview" class="cursor-preview"></div>
+                  <input id="cursorColorInput" type="color" aria-label="Cursor color" />
+                </div>
+                <div id="cursorPresetGrid" class="cursor-preset-grid" aria-label="Cursor presets"></div>
+                <label class="cursor-upload">
+                  <i data-lucide="image-up"></i>
+                  <span>Upload</span>
+                  <input id="cursorUploadInput" type="file" accept="image/*" />
+                </label>
+              </section>
+            </div>
+            <div class="settings-page" data-settings-panel="background" hidden>
+              <section class="settings-section">
+                <h3>Background</h3>
+                <div id="backgroundPresetGrid" class="background-preset-grid" aria-label="Background presets"></div>
+              </section>
+            </div>
           </div>
-        </section>
-        <section class="settings-section">
-          <h3>Change username</h3>
-          <form id="changeUsernameForm" class="settings-form">
-            <label id="changeUsernameField">
-              <span>New username</span>
-              <input name="accountId" autocomplete="username" minlength="3" maxlength="32" required />
-            </label>
-            <p id="changeUsernameNote" class="auth-note form-error-note"></p>
-            <button class="primary-button" type="submit">Change username</button>
-          </form>
-        </section>
-        <section class="settings-section">
-          <h3>Reset password</h3>
-          <form id="changePasswordForm" class="settings-form">
-            <label id="changeCurrentPasswordField">
-              <span>Current password</span>
-              <input name="currentPassword" type="password" autocomplete="current-password" required />
-            </label>
-            <label id="changeNewPasswordField">
-              <span>New password</span>
-              <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
-            </label>
-            <label id="changeNewPasswordConfirmField">
-              <span>Confirm new password</span>
-              <input name="newPasswordConfirm" type="password" autocomplete="new-password" minlength="8" required />
-            </label>
-            <p id="changePasswordNote" class="auth-note form-error-note"></p>
-            <button class="primary-button" type="submit">Change password</button>
-            <button id="settingsForgotPasswordButton" class="text-button" type="button">Forgot password?</button>
-          </form>
-        </section>
-        <section class="settings-section">
-          <h3>Cursor</h3>
-          <div class="cursor-preview-row">
-            <div id="cursorPreview" class="cursor-preview"></div>
-            <input id="cursorColorInput" type="color" aria-label="Cursor color" />
-          </div>
-          <div id="cursorPresetGrid" class="cursor-preset-grid" aria-label="Cursor presets"></div>
-          <label class="cursor-upload">
-            <i data-lucide="image-up"></i>
-            <span>Upload</span>
-            <input id="cursorUploadInput" type="file" accept="image/*" />
-          </label>
-        </section>
-        <section class="settings-section">
-          <h3>Background</h3>
-          <div id="backgroundPresetGrid" class="background-preset-grid" aria-label="Background presets"></div>
-        </section>
+        </div>
       </section>
     </dialog>
 
@@ -335,6 +371,6 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="/app.js?v=20260701-cursor-effects-12"></script>
+    <script src="/app.js?v=20260702-settings-cursor-drag"></script>
   </body>
 </html>

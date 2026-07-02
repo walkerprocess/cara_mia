@@ -901,6 +901,10 @@ select:focus {
   cursor: none !important;
 }
 
+.board.cursor-peer-dragging {
+  cursor: grabbing;
+}
+
 .zoom-controls {
   position: fixed;
   right: 18px;
@@ -2323,9 +2327,78 @@ select:focus {
 
 .cursor-panel {
   gap: 16px;
-  width: min(500px, calc(100vw - 28px));
+  width: 100%;
   max-height: min(760px, calc(100vh - 28px));
   overflow: auto;
+}
+
+#cursorDialog {
+  width: min(780px, calc(100vw - 28px));
+}
+
+.settings-panel {
+  min-height: min(640px, calc(100vh - 28px));
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(132px, 168px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.settings-nav-button {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 0 10px;
+  color: #050406;
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(5, 4, 6, 0.08);
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.settings-nav-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-nav-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-nav-button.active {
+  color: #fff;
+  background: #050406;
+  border-color: #050406;
+}
+
+.settings-pages {
+  min-width: 0;
+}
+
+.settings-page {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-page[hidden] {
+  display: none;
 }
 
 .auth-modal-panel {
@@ -2468,6 +2541,13 @@ select:focus {
   font-weight: 800;
 }
 
+.default-cursor-mark strong {
+  max-width: 86px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .screenshot-viewport {
   background: #020103;
 }
@@ -2563,6 +2643,29 @@ select:focus {
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 660px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav {
+    position: static;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .settings-nav-button {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    min-height: 54px;
+    padding: 7px 6px;
+    text-align: center;
+  }
+
+  .settings-nav-button span {
+    font-size: 11px;
+  }
 }
 
 .toast {
